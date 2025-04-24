@@ -5,7 +5,8 @@ use crate::{
     errors::SoladError,
     events::{OversizedDataReportedEvent, PoSEvent, ReplacementVerifiedEvent},
     states::{
-        Node, OversizedReport, PoSSubmission, Replacement, StorageConfig, Upload, NODE_SEED, REPLACEMENT_SEED, STAKE_ESCROW_SEED, UPLOAD_SEED
+        Node, OversizedReport, PoSSubmission, Replacement, StorageConfig, Upload, NODE_SEED,
+        REPLACEMENT_SEED, STAKE_ESCROW_SEED, UPLOAD_SEED,
     },
     utils::{verify_merkle_proof, verify_signature},
 };
@@ -35,8 +36,14 @@ pub fn process_submit_pos<'info>(
     for submission in submissions {
         // Immutable borrow for validations
         let upload = &ctx.accounts.upload;
-        require!(upload.data_hash == submission.data_hash, SoladError::InvalidHash);
-        require!(submission.shard_id < upload.shard_count, SoladError::InvalidShardId);
+        require!(
+            upload.data_hash == submission.data_hash,
+            SoladError::InvalidHash
+        );
+        require!(
+            submission.shard_id < upload.shard_count,
+            SoladError::InvalidShardId
+        );
 
         // Store data needed later to avoid immutable borrows
         let shard_data = &upload.shards[submission.shard_id as usize];
@@ -97,8 +104,12 @@ pub fn process_submit_pos<'info>(
         let merkle_root = submission.merkle_root.ok_or(SoladError::MissingPoSData)?;
         let merkle_proof = submission.merkle_proof.ok_or(SoladError::MissingPoSData)?;
         let leaf = submission.leaf.ok_or(SoladError::MissingPoSData)?;
-        let challenger_signature = submission.challenger_signature.ok_or(SoladError::MissingPoSData)?;
-        let challenger_pubkey = submission.challenger_pubkey.ok_or(SoladError::MissingPoSData)?;
+        let challenger_signature = submission
+            .challenger_signature
+            .ok_or(SoladError::MissingPoSData)?;
+        let challenger_pubkey = submission
+            .challenger_pubkey
+            .ok_or(SoladError::MissingPoSData)?;
 
         require!(
             shard.node_keys.contains(&challenger_pubkey),
@@ -114,7 +125,10 @@ pub fn process_submit_pos<'info>(
             SoladError::InvalidMerkleProof
         );
 
-        let message = format!("{}:{}:{}", submission.data_hash, submission.shard_id, merkle_root);
+        let message = format!(
+            "{}:{}:{}",
+            submission.data_hash, submission.shard_id, merkle_root
+        );
         require!(
             verify_signature(&message, &challenger_signature, &challenger_pubkey),
             SoladError::InvalidChallengerSignature

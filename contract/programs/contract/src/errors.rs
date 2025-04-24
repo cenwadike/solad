@@ -1,6 +1,38 @@
 pub use anchor_lang::prelude::*;
 #[error_code]
 pub enum SoladError {
+    #[msg("Invalid protocol treasury")]
+    InvalidTreasury,
+    #[msg("Invalid upload payer")]
+    InvalidUploader,
+    #[msg("No proof of storage submitted")]
+    NoPoSSubmitted,
+    #[msg("Shard marked as invalid")]
+    InvalidShard,
+    #[msg("Invalid storage duration")]
+    InvalidStorageDuration,
+    #[msg("Node accounts must be writable")]
+    AccountNotWritable,
+    #[msg("Failed to serialize node account")]
+    SerializationError,
+    #[msg("Invalid node assignment")]
+    InvalidNodeAssignments,
+    #[msg("Invalid shard sizes")]
+    InvalidShardSizes,
+    #[msg("Duplicate node account provided")]
+    DuplicateNodeAccount,
+    #[msg("Node not in shard")]
+    NodeNotInShard,
+    #[msg("Invalid upload")]
+    InvalidUpload,
+    #[msg("Insufficient accounts. Provide matching number of replacement")]
+    InsufficientAccounts,
+    #[msg("Pending replacement. Encourage replacement to submit PoS")]
+    PendingReplacement,
+    #[msg("Invalid state, has no upload")]
+    InvalidState,
+    #[msg("Node already registered")]
+    NodeAlreadyRegistered,
     #[msg("Invalid PoS submission")]
     InvalidSubmission,
     #[msg("Invalid size report")]

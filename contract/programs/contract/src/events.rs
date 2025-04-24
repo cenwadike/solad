@@ -48,10 +48,11 @@ pub struct NodeExitedEvent {
 
 #[event]
 pub struct ReplacementRequestedEvent {
-    pub exiting_node: Pubkey,
-    pub replacement_node: Pubkey,
     pub data_hash: String,
     pub shard_id: u8,
+    pub exiting_node: Pubkey,
+    pub replacement_node: Pubkey,
+    pub storage_fee: u64,
 }
 
 #[event]
@@ -80,10 +81,13 @@ pub struct NodeDeregisteredEvent {
 
 #[event]
 pub struct UploadEvent {
+    pub upload_pda: Pubkey,
     pub data_hash: String,
-    pub size_mb: u64,
+    pub size_bytes: u64,
     pub shard_count: u8,
     pub payer: Pubkey,
+    pub nodes: Vec<Pubkey>,
+    pub storage_duration_days: u64,
 }
 
 #[event]
@@ -119,5 +123,5 @@ pub struct UserSlashedEvent {
     pub shard_id: u8,
     pub slash_amount: u64,
     pub refund_amount: u64,
-    pub actual_size_mb: u64,
+    pub actual_size_bytes: u64,
 }

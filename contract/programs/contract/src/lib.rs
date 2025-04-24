@@ -9,7 +9,7 @@ mod events;
 mod states;
 mod utils;
 
-use crate::states::PoSSubmission;
+use crate::states::{PoSSubmission, ShardReplacement};
 
 declare_id!("4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp");
 
@@ -21,7 +21,9 @@ declare_id!("4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp");
 // maintaining data integrity through cryptographic proofs.
 
 #[program]
-pub mod solad {
+pub mod contract {
+
+    use crate::states::ShardReplacement;
 
     use super::*;
 
@@ -40,6 +42,7 @@ pub mod solad {
         min_node_stake: u64,
         replacement_timeout_epochs: u64,
         min_lamports_per_upload: u64,
+        max_user_uploads: u64,
         user_slash_penalty_percent: u64,
     ) -> Result<()> {
         process_initialize(
@@ -57,6 +60,7 @@ pub mod solad {
             min_node_stake,
             replacement_timeout_epochs,
             min_lamports_per_upload,
+            max_user_uploads,
             user_slash_penalty_percent,
         )
     }
@@ -69,13 +73,14 @@ pub mod solad {
         process_deregister_node(ctx)
     }
 
-    pub fn upload_data(
-        ctx: Context<UploadData>,
+    pub fn upload_data<'info>(
+        ctx: Context<'_, '_, 'info, 'info, UploadData<'info>>,
         data_hash: String,
-        size_mb: u64,
+        size_bytes: u64,
         shard_count: u8,
+        storage_duration_days: u64,
     ) -> Result<()> {
-        process_upload_data(ctx, data_hash, size_mb, shard_count)
+        process_upload_data(ctx, data_hash, size_bytes, shard_count, storage_duration_days)
     }
 
     pub fn slash_user(ctx: Context<SlashUser>, data_hash: String, shard_id: u8) -> Result<()> {
@@ -101,8 +106,24 @@ pub mod solad {
         ctx: Context<RequestReplacement>,
         data_hash: String,
         shard_id: u8,
+        uploader: Pubkey,
     ) -> Result<()> {
-        process_request_replacement(ctx, data_hash, shard_id)
+        process_request_replacement(ctx, data_hash, shard_id, uploader)
+    }
+
+    pub fn batch_request_replacement<'info>(
+        ctx: Context<'_, '_, 'info, 'info, BatchRequestReplacement<'info>>,
+        shard_replacements: Vec<ShardReplacement>,
+    ) -> Result<()> {
+        process_batch_request_replacement(ctx, shard_replacements)
+    }
+
+    pub fn close_upload<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CloseUpload<'info>>,
+        data_hash: String,
+        shard_id: u8,
+    ) -> Result<()> {
+        process_close_upload(ctx, data_hash, shard_id)
     }
 
     pub fn slash_timeout(
@@ -144,7 +165,6 @@ pub mod solad {
         )
     }
 }
-
 // CLI instructions for interacting with the Solad program.
 // These commands provide a reference for deploying and managing the storage network.
 
@@ -161,24 +181,80 @@ pub mod solad {
 //     --max-shard-count <MAX_SHARD_COUNT> \
 //     --slots-per-epoch <SLOTS_PER_EPOCH> \
 //     --min-node-stake <MIN_NODE_STAKE> \
-//     --replacement-timeout-epochs <REPLACEMENT_TIMEOUT_EPOCHS>
+//     --replacement-timeout-epochs <REPLACEMENT_TIMEOUT_EPOCHS> \
+//     --min-lamports-per-upload <MIN_LAMPORTS_PER_UPLOAD> \
+//     --user-slash-penalty-percent <USER_SLASH_PENALTY_PERCENT> \
+//     --authority <AUTHORITY_KEYPAIR>
 
-// // Register a new storage node
+// Register a new storage node
 // solad register-node \
 //     --stake-amount <STAKE_AMOUNT> \
 //     --owner <NODE_OWNER_KEYPAIR>
 
-// // Request replacement or exit for a shard
-// solad request-replacement \
-//     --data-hash <DATA_HASH> \
-//     --shard-id <SHARD_ID> \
-//     --owner <NODE_OWNER_KEYPAIR>
-
-// // Deregister a node
+// Deregister a node
 // solad deregister-node \
 //     --owner <NODE_OWNER_KEYPAIR>
 
-// // Update the storage configuration
+// Upload data with sharding
+// solad upload \
+//     --data-hash <DATA_HASH> \
+//     --size-bytes <SIZE_BYTES> \
+//     --shard-count <SHARD_COUNT> \
+//     --storage-duration-days <DURATION> \
+//     --payer <PAYER_KEYPAIR>
+
+// Slash a user for invalid data size
+// solad slash-user \
+//     --data-hash <DATA_HASH> \
+//     --shard-id <SHARD_ID> \
+//     --node <NODE_KEYPAIR>
+
+// Submit Proof of Storage (PoS)
+// solad submit-pos \
+//     --submissions <SUBMISSIONS_JSON> \
+//     --node <NODE_KEYPAIR>
+//
+// Note: <SUBMISSIONS_JSON> is a JSON array of objects, each containing:
+//       {"data_hash": <DATA_HASH>, "shard_id": <SHARD_ID>, "merkle_root": <MERKLE_ROOT>,
+//        "merkle_proof": <MERKLE_PROOF>, "leaf": <LEAF_HASH>,
+//        "challenger_signature": <CHALLENGER_SIGNATURE>, "challenger_pubkey": <CHALLENGER_PUBKEY>}
+
+// Claim storage rewards
+// solad claim-rewards \
+//     --data-hash <DATA_HASH> \
+//     --shard-id <SHARD_ID> \
+//     --node <NODE_KEYPAIR>
+
+// Request replacement for a single shard
+// solad request-replacement \
+//     --data-hash <DATA_HASH> \
+//     --shard-id <SHARD_ID> \
+//     --exiting-node <EXITING_NODE_KEYPAIR> \
+//     --replacement-node <REPLACEMENT_NODE_KEYPAIR>
+
+// Batch request replacements for multiple shards
+// solad batch-request-replacement \
+//     --shard-replacements <SHARD_REPLACEMENTS_JSON> \
+//     --exiting-node <EXITING_NODE_KEYPAIR> \
+//     --replacement-node <REPLACEMENT_NODE_KEYPAIR>
+//
+// Note: <SHARD_REPLACEMENTS_JSON> is a JSON array of objects, each containing:
+//       {"data_hash": <DATA_HASH>, "shard_id": <SHARD_ID>}
+
+// Close an upload for a specific shard
+// solad close-upload \
+//     --data-hash <DATA_HASH> \
+//     --shard-id <SHARD_ID> \
+//     --payer <PAYER_KEYPAIR>
+
+// Slash a node for replacement timeout
+// solad slash-timeout \
+//     --data-hash <DATA_HASH> \
+//     --shard-id <SHARD_ID> \
+//     --exiting-node <EXITING_NODE_PUBKEY> \
+//     --caller <CALLER_KEYPAIR>
+
+// Update the storage configuration
 // solad update-config \
 //     --sol-per-gb <LAMPORTS_PER_GB> \
 //     --treasury-fee-percent <TREASURY_FEE_PERCENT> \
@@ -192,39 +268,3 @@ pub mod solad {
 //     --min-node-stake <MIN_NODE_STAKE> \
 //     --replacement-timeout-epochs <REPLACEMENT_TIMEOUT_EPOCHS> \
 //     --authority <AUTHORITY_KEYPAIR>
-
-// // Upload data with sharding
-// solad upload \
-//     --data-hash <DATA_HASH> \
-//     --size-mb <SIZE_MB> \
-//     --shard-count <SHARD_COUNT> \
-//     --payer <PAYER_KEYPAIR>
-
-// Slash a user for invalid data size solad slash-user 
-// --data-hash <DATA_HASH> 
-// --shard-id <SHARD_ID> 
-// --node <NODE_KEYPAIR>
-
-// // Submit Proof of Storage (PoS)
-// solad submit-pos \
-//     --data-hash <DATA_HASH> \
-//     --shard-id <SHARD_ID> \
-//     --merkle-root <MERKLE_ROOT> \
-//     --merkle-proof <MERKLE_PROOF> \
-//     --leaf <LEAF_HASH> \
-//     --challenger-signature <CHALLENGER_SIGNATURE> \
-//     --challenger-pubkey <CHALLENGER_PUBKEY> \
-//     --node <NODE_KEYPAIR>
-
-// // Slash a node for timeout
-// solad slash-timeout \
-//     --data-hash <DATA_HASH> \
-//     --shard-id <SHARD_ID> \
-//     --exiting-node <EXITING_NODE_PUBKEY> \
-//     --caller <CALLER_KEYPAIR>
-
-// // Claim storage rewards
-// solad claim-rewards \
-//     --data-hash <DATA_HASH> \
-//     --shard-id <SHARD_ID> \
-//     --node <NODE_KEYPAIR>

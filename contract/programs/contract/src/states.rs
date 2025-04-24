@@ -1,8 +1,9 @@
-pub use anchor_lang::prelude::*;
+use anchor_lang::prelude::*;
 
 // PDA Seeds
 pub const STORAGE_CONFIG_SEED: &[u8] = b"storage_config";
 pub const UPLOAD_SEED: &[u8] = b"upload";
+pub const USER_UPLOAD_KEYS_SEED: &[u8] = b"upload_keys";
 pub const NODE_SEED: &[u8] = b"node";
 pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const STAKE_ESCROW_SEED: &[u8] = b"stake_escrow";
@@ -24,20 +25,44 @@ pub struct StorageConfig {
     pub replacement_timeout_epochs: u64,
     pub min_lamports_per_upload: u64,
     pub user_slash_penalty_percent: u64,
+    pub max_user_uploads: u64,
     pub is_initialized: bool,
+}
+
+#[account]
+pub struct Node {
+    pub owner: Pubkey,
+    pub stake_amount: u64,
+    pub upload_count: u64,
+    pub last_pos_time: i64,
+    pub last_claimed_epoch: u64,
+    pub is_active: bool,
+}
+
+#[account]
+pub struct NodeRegistry {
+    pub nodes: Vec<Pubkey>, // List of registered node public keys
 }
 
 #[account]
 pub struct Upload {
     pub data_hash: String,
-    pub size_mb: u64,
+    pub size_bytes: u64, 
     pub shard_count: u8,
     pub node_lamports: u64,
     pub payer: Pubkey,
     pub upload_time: i64,
+    pub storage_duration_days: u64,
+    pub expiry_time: i64,
     pub current_slot: u64,
-    pub payer_upload_count: u64,
     pub shards: Vec<ShardInfo>,
+}
+
+
+#[account]
+pub struct UserUploadKeys {
+    pub user: Pubkey,           // The user (payer) who owns the uploads
+    pub uploads: String,        // CSV of all Upload PDA public keys
 }
 
 // Defines the data structure for a single PoS submission in a batch.
@@ -64,12 +89,9 @@ pub struct PoSSubmission {
 }
 
 #[account]
-pub struct Node {
-    pub owner: Pubkey,
-    pub stake_amount: u64,
-    pub upload_count: u64,
-    pub last_pos_time: i64,
-    pub last_claimed_epoch: u64,
+pub struct Escrow {
+    pub bump: u8,
+    pub lamports: u64,
 }
 
 #[account]
@@ -82,9 +104,11 @@ pub struct Replacement {
     pub request_epoch: u64,
 }
 
-#[account]
-pub struct Escrow {
-    pub bump: u8,
+/// Structure defining a shard replacement request with data hash and shard ID.
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct ShardReplacement {
+    pub data_hash: String,
+    pub shard_id: u8,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -95,6 +119,7 @@ pub struct ShardInfo {
     pub size_mb: u64,
     pub challenger: Pubkey,
     pub oversized_reports: Vec<OversizedReport>,
+    pub rewarded_nodes: Vec<Pubkey>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
