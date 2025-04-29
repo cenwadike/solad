@@ -25,7 +25,10 @@ pub struct StorageConfig {
     pub replacement_timeout_epochs: u64,
     pub min_lamports_per_upload: u64,
     pub user_slash_penalty_percent: u64,
+    pub reporting_window: u64,
     pub max_user_uploads: u64,
+    pub oversized_report_threshold: f64,
+    pub max_submssions: u64,
     pub is_initialized: bool,
 }
 
@@ -47,7 +50,7 @@ pub struct NodeRegistry {
 #[account]
 pub struct Upload {
     pub data_hash: String,
-    pub size_bytes: u64, 
+    pub size_bytes: u64,
     pub shard_count: u8,
     pub node_lamports: u64,
     pub payer: Pubkey,
@@ -58,11 +61,10 @@ pub struct Upload {
     pub shards: Vec<ShardInfo>,
 }
 
-
 #[account]
 pub struct UserUploadKeys {
-    pub user: Pubkey,           // The user (payer) who owns the uploads
-    pub uploads: String,        // CSV of all Upload PDA public keys
+    pub user: Pubkey,         // The user (payer) who owns the uploads
+    pub uploads: Vec<Pubkey>, // List of all Upload PDA public keys
 }
 
 // Defines the data structure for a single PoS submission in a batch.
@@ -75,7 +77,7 @@ pub struct PoSSubmission {
     /// ID of the shard being verified.
     pub shard_id: u8,
     /// Optional Merkle root for PoS verification.
-    pub merkle_root: Option<String>,
+    pub merkle_root: Option<[u8; 32]>,
     /// Optional Merkle proof path for the leaf.
     pub merkle_proof: Option<Vec<[u8; 32]>>,
     /// Optional leaf hash being verified.

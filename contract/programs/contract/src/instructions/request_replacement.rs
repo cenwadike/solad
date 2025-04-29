@@ -101,7 +101,11 @@ pub fn process_request_replacement(
 
         Ok(())
     } else {
-        let replacement = ctx.accounts.replacement.as_mut().ok_or(SoladError::InvalidNodeAccount)?;
+        let replacement = ctx
+            .accounts
+            .replacement
+            .as_mut()
+            .ok_or(SoladError::InvalidNodeAccount)?;
         let node_registry = ctx.accounts.node_registry.clone();
         let mut node_stakes = Vec::new();
         let mut total_stake = 0u64;

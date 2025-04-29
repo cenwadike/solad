@@ -44,6 +44,9 @@ pub mod contract {
         min_lamports_per_upload: u64,
         max_user_uploads: u64,
         user_slash_penalty_percent: u64,
+        reporting_window: u64,
+        oversized_report_threshold: f64,
+        max_submssions: u64,
     ) -> Result<()> {
         process_initialize(
             ctx,
@@ -62,6 +65,9 @@ pub mod contract {
             min_lamports_per_upload,
             max_user_uploads,
             user_slash_penalty_percent,
+            reporting_window,
+            oversized_report_threshold,
+            max_submssions,
         )
     }
 
@@ -80,7 +86,13 @@ pub mod contract {
         shard_count: u8,
         storage_duration_days: u64,
     ) -> Result<()> {
-        process_upload_data(ctx, data_hash, size_bytes, shard_count, storage_duration_days)
+        process_upload_data(
+            ctx,
+            data_hash,
+            size_bytes,
+            shard_count,
+            storage_duration_days,
+        )
     }
 
     pub fn slash_user(ctx: Context<SlashUser>, data_hash: String, shard_id: u8) -> Result<()> {
@@ -89,9 +101,10 @@ pub mod contract {
 
     pub fn submit_pos<'info>(
         ctx: Context<'_, '_, 'info, 'info, SubmitPoS<'info>>,
-        submissions: Vec<PoSSubmission>,
+        submission: PoSSubmission,
+        uploader: Pubkey
     ) -> Result<()> {
-        process_submit_pos(ctx, submissions)
+        process_submit_pos(ctx, submission, uploader)
     }
 
     pub fn claim_rewards(

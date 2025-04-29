@@ -1,14 +1,17 @@
 # Solad Program Reference Specification
 
 ## Overview
-The Solad Program is a decentralized storage protocol built on the Solana blockchain using the Anchor framework. It provides a scalable, secure, and economically viable solution for distributed data storage, leveraging sharding, node staking, proof-of-storage (PoS) verification, and reward distribution mechanisms. The protocol ensures data availability through node replacement strategies and enforces compliance via slashing penalties for non-performing nodes. This document serves as a comprehensive reference specification, detailing the program's architecture, configuration rationales, operational flows, and best practices for deployment and management.
+The Solad Program is a decentralized storage protocol on the Solana blockchain, built with the Anchor framework. It provides a scalable, secure, and economically viable solution for distributed data storage, leveraging logical sharding, node staking, Proof of Storage (PoS) verification, and reward distribution. The protocol ensures high availability through redundancy (up to 3 nodes per shard) and enforces compliance via slashing mechanisms. This specification details the program’s architecture, configuration rationales, operational flows, and best practices for deployment and management, aligned with the current implementation.
 
 The Solad Program optimizes for:
 
-- Scalability: Supports large-scale data storage through sharding and dynamic node assignment.
-- Economic Viability: Balances costs and incentives for users, nodes, and the treasury to ensure long-term sustainability.
-- Resource Efficiency: Minimizes on-chain storage and computation through efficient account structures and cryptographic proofs.
-- Security: Uses Merkle proofs and ECDSA signatures for data integrity and node accountability.
+- Scalability: Supports large-scale storage via logical sharding and dynamic node assignment.
+
+- Economic Viability: Balances costs and incentives for users, nodes, and treasury.
+
+- Resource Efficiency: Minimizes on-chain overhead with efficient metadata and off-chain data storage.
+
+- Security: Uses cryptographic hashes and PoS for data integrity and accountability.
 
 `This specification covers the rationale for configurations, operational workflows, and best practices to maximize efficiency, scalability, and economic viability.`
 
@@ -30,8 +33,8 @@ Node state (Node) tracks stake, uploads, and verification history.
 
 #### Uploads:
 
-Data is sharded and distributed across nodes, with metadata stored in a PDA (Upload).
-Supports dynamic shard sizing and node assignment based on stake weight.
+Data is logically sharded, with full data replicated across 1–3 nodes per shard, stored in a PDA (Upload).
+Metadata includes `data_hash`, `size_bytes`, `shard_count`, `storage_duration_days`, and `expiry_time`.
 
 
 #### Proof of Storage (PoS):
@@ -42,9 +45,12 @@ Ensures data integrity and availability without storing full data on-chain.
 
 #### Rewards and Slashing:
 
-Nodes earn rewards for verified storage, distributed over epochs.
-Non-compliant nodes are slashed, redistributing stake to the treasury and callers.
+Nodes earn 75% of payments (25% initial, 75% endowment over epochs) post-PoS.
+Slashing penalizes non-compliant nodes (10% stake) and users (10% shard escrow).
 
+#### Escrow:
+
+Stores node payments in a PDA (`Escrow`) per upload, released via PoS and reward claims.
 
 #### Node Replacement:
 
@@ -52,17 +58,17 @@ Allows nodes to exit or be replaced, maintaining data availability.
 Replacement nodes are selected pseudo-randomly based on stake weight.
 
 
-
 ### Key Design Principles
 
-- Decentralization: No single point of failure; nodes are selected dynamically to prevent collusion.
-- Economic Incentives: Aligns interests of users, nodes, and the treasury through configurable fees and penalties.
-- Scalability: Sharding and off-chain proofs minimize on-chain overhead, supporting large datasets.
-- Security: Cryptographic proofs (Merkle trees, ECDSA signatures) ensure data integrity and node accountability.
-- Flexibility: Configurable parameters allow adaptation to network conditions and economic goals.
+- Decentralization: Random node assignment prevents collusion.
+- Economic Incentives: Configurable fees and slashing align user, node, and treasury interests.
+- Scalability: Logical sharding and off-chain data minimize costs.
+- Security: SHA-256 hashes and PoS ensure integrity.
+- Flexibility: User-specified `storage_duration_days` supports varied needs.
 
 
 ### Configuration Rationale
+
 The Solad Program's configuration parameters are designed to balance resource efficiency, economic viability, and operational scalability. Below, each parameter is explained with its purpose, optimization strategy, and impact on the system.
 1. sol_per_gb (Cost per Gigabyte in Lamports)
 
@@ -333,7 +339,7 @@ Rationale: Higher pricing and stakes ensure premium service; larger shards optim
 ## Economic Model Analysis
 ### Revenue Streams
 
-- User Payments: Paid to treasury and node escrow based on sol_per_gb and data size.
+- User Payments: Paid to treasury and node escrow based on `size_bytes`, `shard_count`, `storage_duration_days`.
 - Slashing Penalties: Redistributed to treasury (90%) and callers (10%), funding protocol maintenance and incentivizing enforcement.
 - Node Rewards: Distributed from escrow over epochs_total, proportional to shard size and verification status.
 

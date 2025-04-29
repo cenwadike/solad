@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use std::mem::size_of;
 
 use crate::{
     errors::SoladError,
@@ -50,6 +51,9 @@ pub fn process_initialize(
     min_lamports_per_upload: u64,
     max_user_uploads: u64,
     user_slash_penalty_percent: u64,
+    reporting_window: u64,
+    oversized_report_threshold: f64,
+    max_submssions: u64,
 ) -> Result<()> {
     let config = &mut ctx.accounts.config;
     config.treasury = treasury;
@@ -66,7 +70,10 @@ pub fn process_initialize(
     config.replacement_timeout_epochs = replacement_timeout_epochs;
     config.min_lamports_per_upload = min_lamports_per_upload;
     config.user_slash_penalty_percent = user_slash_penalty_percent;
+    config.reporting_window = reporting_window;
     config.max_user_uploads = max_user_uploads;
+    config.oversized_report_threshold = oversized_report_threshold;
+    config.max_submssions = max_submssions;
     config.is_initialized = true;
 
     require!(sol_per_gb > 0, SoladError::InvalidPaymentRate);
@@ -111,33 +118,19 @@ pub fn process_initialize(
         replacement_timeout_epochs,
         min_lamports_per_upload,
         user_slash_penalty_percent,
+        reporting_window,
+        oversized_report_threshold,
     });
 
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(
-    treasury: Pubkey,
-    sol_per_gb: u64,
-    treasury_fee_percent: u64,
-    node_fee_percent: u64,
-    shard_min_mb: u64,
-    epochs_total: u64,
-    slash_penalty_percent: u64,
-    min_shard_count: u8,
-    max_shard_count: u8,
-    slots_per_epoch: u64,
-    min_node_stake: u64,
-    replacement_timeout_epochs: u64,
-    min_lamports_per_upload: u64,
-    user_slash_penalty_percent: u64
-)]
 pub struct Initialize<'info> {
     #[account(
         init,
         payer = authority,
-        space = 8 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1 + 8 + 8 + 8 + 8 + 8 + 8 + 1,
+        space = 8 + size_of::<StorageConfig>(),
         seeds = [STORAGE_CONFIG_SEED],
         bump
     )]

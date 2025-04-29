@@ -3,7 +3,6 @@ use crate::{
     errors::SoladError,
     events::UploadEvent,
     states::{Escrow, Node, NodeRegistry, ShardInfo, StorageConfig, Upload},
-    utils::hash_to_shard,
 };
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -33,7 +32,7 @@ pub fn process_upload_data<'info>(
     require!(config.is_initialized, SoladError::NotInitialized);
 
     // Validate inputs
-    require!(size_bytes >= 1024, SoladError::InvalidSize); // Minimum 1 KB
+    require!(size_bytes >= 1024, SoladError::InvalidSize);
     require!(
         shard_count >= config.min_shard_count && shard_count <= config.max_shard_count,
         SoladError::InvalidShardCount
@@ -43,7 +42,7 @@ pub fn process_upload_data<'info>(
         SoladError::InvalidHash
     );
     require!(
-        storage_duration_days >= 1 && storage_duration_days <= 365 * 2000, // 1 day to 2000 years
+        storage_duration_days >= 1 && storage_duration_days <= 365 * 2000,
         SoladError::InvalidStorageDuration
     );
 
@@ -54,14 +53,16 @@ pub fn process_upload_data<'info>(
     let user_upload_keys = &mut ctx.accounts.user_upload_keys;
     if user_upload_keys.uploads.is_empty() {
         user_upload_keys.user = ctx.accounts.payer.key();
-        user_upload_keys.uploads = upload.key().to_string();
+        user_upload_keys.uploads = vec![upload.key()];
     } else {
-        // Append the new upload PDA to the CSV string
-        user_upload_keys.uploads.push_str(",");
-        user_upload_keys.uploads.push_str(&upload.key().to_string());
+        require!(
+            user_upload_keys.uploads.len() < config.max_user_uploads as usize,
+            SoladError::TooManyUploads
+        );
+        user_upload_keys.uploads.push(upload.key());
     }
 
-    // Collect and validate nodes from remaining_accounts
+    // Collect and validate nodes
     let mut node_stakes = Vec::new();
     let mut processed_keys = Vec::new();
 
@@ -94,15 +95,15 @@ pub fn process_upload_data<'info>(
 
     // Calculate lamports
     let base_lamports = size_bytes
-        .checked_mul(config.sol_per_gb) // Cost per GB
+        .checked_mul(config.sol_per_gb)
         .ok_or(SoladError::MathOverflow)?
-        .checked_div(1024 * 1024 * 1024) // Scale to bytes (1 GB = 2^30 bytes)
+        .checked_div(1024 * 1024 * 1024)
         .ok_or(SoladError::MathOverflow)?
-        .checked_mul(shard_count as u64) // Scale by shard_count for redundancy
+        .checked_mul(shard_count as u64)
         .ok_or(SoladError::MathOverflow)?
-        .checked_mul(storage_duration_days) // Scale by duration
+        .checked_mul(storage_duration_days)
         .ok_or(SoladError::MathOverflow)?
-        .checked_div(7300) // Base duration (20 years)
+        .checked_div(7300)
         .ok_or(SoladError::MathOverflow)?;
     let total_lamports = base_lamports;
     let treasury_lamports = total_lamports
@@ -139,8 +140,11 @@ pub fn process_upload_data<'info>(
         node_lamports,
     )?;
 
-    // Calculate shard sizes (in bytes)
-    let size_mb = (size_bytes + (1024 * 1024 - 1)) / (1024 * 1024); // Ceiling to MB
+    // Calculate shard sizes
+    let size_mb = size_bytes
+        .checked_add(1024 * 1024 - 1)
+        .ok_or(SoladError::MathOverflow)?
+        / (1024 * 1024);
     let mut adjusted_shard_count = shard_count;
     let mut shard_sizes_mb = vec![0u64; shard_count as usize];
     let base_shard_size = size_mb / (shard_count as u64);
@@ -201,7 +205,13 @@ pub fn process_upload_data<'info>(
         let mut nodes_for_shard = vec![];
         let mut remaining_nodes = node_stakes.clone();
 
-        let seed = format!("{}:{}:{}", data_hash, i, upload.current_slot);
+        let seed = format!(
+            "{}:{}:{}:{}",
+            data_hash,
+            i,
+            upload.current_slot,
+            Clock::get()?.unix_timestamp,
+        );
         let mut rng_state =
             u64::from_le_bytes(Sha256::digest(seed.as_bytes())[..8].try_into().unwrap());
 
@@ -277,7 +287,7 @@ pub fn process_upload_data<'info>(
     );
 
     for i in 0..adjusted_shard_count as usize {
-        let shard_id = hash_to_shard(&data_hash, i as u8);
+        let shard_id = i as u8;
         let mut node_array = [Pubkey::default(); 3];
         let nodes = &assigned_nodes[i];
         for (j, &key) in nodes.iter().enumerate().take(3) {
@@ -303,6 +313,7 @@ pub fn process_upload_data<'info>(
         payer: ctx.accounts.payer.key(),
         nodes: updated_nodes,
         storage_duration_days,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())
@@ -314,7 +325,7 @@ pub struct UploadData<'info> {
     #[account(
         init_if_needed,
         payer = payer,
-        space=size_of::<UserUploadKeys>() + 8 + (config.max_user_uploads as usize * 44),
+        space=size_of::<UserUploadKeys>() + 8 + (config.max_user_uploads as usize * 32),
         seeds = [USER_UPLOAD_KEYS_SEED, payer.key().as_ref()],
         bump
     )]

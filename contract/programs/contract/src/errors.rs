@@ -1,6 +1,12 @@
 pub use anchor_lang::prelude::*;
 #[error_code]
 pub enum SoladError {
+    #[msg("Exceeded maximum upload for this account")]
+    TooManyUploads,
+    #[msg("Can only submit one report for data")]
+    TooManyReports,
+    #[msg("Submissions exceed maximum PoS submissions")]
+    TooManySubmissions,
     #[msg("Invalid protocol treasury")]
     InvalidTreasury,
     #[msg("Invalid upload payer")]
