@@ -1,0 +1,2907 @@
+{
+  "address": "4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp",
+  "metadata": {
+    "name": "contract",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "batch_request_replacement",
+      "discriminator": [
+        244,
+        136,
+        63,
+        176,
+        169,
+        142,
+        18,
+        189
+      ],
+      "accounts": [
+        {
+          "name": "exiting_node",
+          "docs": [
+            "The exiting node account (mutable, as its upload count may be decremented)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "replacement_node",
+          "docs": [
+            "The replacement node account (mutable, for potential updates)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "config",
+          "docs": [
+            "The storage configuration account (mutable, for potential updates)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "The payer of the transaction (signer)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "The Solana system program."
+          ],
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "shard_replacements",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "ShardReplacement"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "claim_rewards",
+      "discriminator": [
+        4,
+        144,
+        132,
+        71,
+        116,
+        23,
+        151,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "upload",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "upload.payer",
+                "account": "Upload"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "node"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "upload.payer",
+                "account": "Upload"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "stake_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "node.owner",
+                "account": "Node"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "data_hash",
+          "type": "string"
+        },
+        {
+          "name": "shard_id",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "close_upload",
+      "discriminator": [
+        201,
+        254,
+        79,
+        18,
+        221,
+        235,
+        91,
+        16
+      ],
+      "accounts": [
+        {
+          "name": "upload",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "data_hash",
+          "type": "string"
+        },
+        {
+          "name": "shard_id",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "deregister_node",
+      "discriminator": [
+        92,
+        177,
+        93,
+        30,
+        69,
+        177,
+        46,
+        177
+      ],
+      "accounts": [
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize",
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  111,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "node_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "treasury",
+          "type": "pubkey"
+        },
+        {
+          "name": "sol_per_gb",
+          "type": "u64"
+        },
+        {
+          "name": "treasury_fee_percent",
+          "type": "u64"
+        },
+        {
+          "name": "node_fee_percent",
+          "type": "u64"
+        },
+        {
+          "name": "shard_min_mb",
+          "type": "u64"
+        },
+        {
+          "name": "epochs_total",
+          "type": "u64"
+        },
+        {
+          "name": "slash_penalty_percent",
+          "type": "u64"
+        },
+        {
+          "name": "min_shard_count",
+          "type": "u8"
+        },
+        {
+          "name": "max_shard_count",
+          "type": "u8"
+        },
+        {
+          "name": "slots_per_epoch",
+          "type": "u64"
+        },
+        {
+          "name": "min_node_stake",
+          "type": "u64"
+        },
+        {
+          "name": "replacement_timeout_epochs",
+          "type": "u64"
+        },
+        {
+          "name": "min_lamports_per_upload",
+          "type": "u64"
+        },
+        {
+          "name": "max_user_uploads",
+          "type": "u64"
+        },
+        {
+          "name": "user_slash_penalty_percent",
+          "type": "u64"
+        },
+        {
+          "name": "reporting_window",
+          "type": "u64"
+        },
+        {
+          "name": "oversized_report_threshold",
+          "type": "f64"
+        },
+        {
+          "name": "max_submssions",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "register_node",
+      "discriminator": [
+        102,
+        85,
+        117,
+        114,
+        194,
+        188,
+        211,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "stake_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "request_replacement",
+      "discriminator": [
+        139,
+        19,
+        95,
+        231,
+        71,
+        150,
+        109,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "upload",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "arg",
+                "path": "uploader"
+              }
+            ]
+          }
+        },
+        {
+          "name": "replacement",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "stake_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "data_hash",
+          "type": "string"
+        },
+        {
+          "name": "shard_id",
+          "type": "u8"
+        },
+        {
+          "name": "uploader",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "slash_timeout",
+      "discriminator": [
+        46,
+        76,
+        242,
+        157,
+        233,
+        208,
+        207,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "upload",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "upload.payer",
+                "account": "Upload"
+              }
+            ]
+          }
+        },
+        {
+          "name": "exiting_node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "exiting_node.owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "replacement",
+          "writable": true
+        },
+        {
+          "name": "exiting_stake_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "exiting_node.owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "data_hash",
+          "type": "string"
+        },
+        {
+          "name": "shard_id",
+          "type": "u8"
+        },
+        {
+          "name": "exiting_node",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "slash_user",
+      "discriminator": [
+        208,
+        190,
+        26,
+        101,
+        212,
+        59,
+        107,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "upload",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "upload.payer",
+                "account": "Upload"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "node"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "upload.payer",
+                "account": "Upload"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "data_hash",
+          "type": "string"
+        },
+        {
+          "name": "shard_id",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "submit_pos",
+      "discriminator": [
+        64,
+        85,
+        209,
+        152,
+        245,
+        67,
+        1,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "upload",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "arg",
+                "path": "uploader"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "node"
+              }
+            ]
+          }
+        },
+        {
+          "name": "replacement",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "submission",
+          "type": {
+            "defined": {
+              "name": "PoSSubmission"
+            }
+          }
+        },
+        {
+          "name": "uploader",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  111,
+                  114,
+                  97,
+                  103,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "sol_per_gb",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "treasury_fee_percent",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "node_fee_percent",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "shard_min_mb",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "epochs_total",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "slash_penalty_percent",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "min_shard_count",
+          "type": {
+            "option": "u8"
+          }
+        },
+        {
+          "name": "max_shard_count",
+          "type": {
+            "option": "u8"
+          }
+        },
+        {
+          "name": "slots_per_epoch",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "min_node_stake",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "replacement_timeout_epochs",
+          "type": {
+            "option": "u64"
+          }
+        }
+      ]
+    },
+    {
+      "name": "upload_data",
+      "discriminator": [
+        71,
+        186,
+        8,
+        42,
+        188,
+        75,
+        135,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "user_upload_keys",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100,
+                  95,
+                  107,
+                  101,
+                  121,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "upload",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  108,
+                  111,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "writable": true
+        },
+        {
+          "name": "node_registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  100,
+                  101,
+                  95,
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "data_hash"
+              },
+              {
+                "kind": "account",
+                "path": "payer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "program",
+          "address": "4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "data_hash",
+          "type": "string"
+        },
+        {
+          "name": "size_bytes",
+          "type": "u64"
+        },
+        {
+          "name": "shard_count",
+          "type": "u8"
+        },
+        {
+          "name": "storage_duration_days",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Escrow",
+      "discriminator": [
+        31,
+        213,
+        123,
+        187,
+        186,
+        22,
+        218,
+        155
+      ]
+    },
+    {
+      "name": "Node",
+      "discriminator": [
+        208,
+        53,
+        1,
+        3,
+        49,
+        122,
+        180,
+        49
+      ]
+    },
+    {
+      "name": "NodeRegistry",
+      "discriminator": [
+        44,
+        159,
+        137,
+        51,
+        245,
+        185,
+        177,
+        45
+      ]
+    },
+    {
+      "name": "Replacement",
+      "discriminator": [
+        79,
+        17,
+        200,
+        88,
+        3,
+        144,
+        124,
+        42
+      ]
+    },
+    {
+      "name": "StorageConfig",
+      "discriminator": [
+        90,
+        136,
+        182,
+        122,
+        243,
+        186,
+        80,
+        201
+      ]
+    },
+    {
+      "name": "Upload",
+      "discriminator": [
+        61,
+        182,
+        9,
+        205,
+        212,
+        212,
+        240,
+        214
+      ]
+    },
+    {
+      "name": "UserUploadKeys",
+      "discriminator": [
+        149,
+        206,
+        207,
+        207,
+        13,
+        135,
+        195,
+        154
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ConfigInitializedEvent",
+      "discriminator": [
+        22,
+        167,
+        192,
+        50,
+        220,
+        20,
+        10,
+        71
+      ]
+    },
+    {
+      "name": "ConfigUpdatedEvent",
+      "discriminator": [
+        245,
+        158,
+        129,
+        99,
+        60,
+        100,
+        214,
+        220
+      ]
+    },
+    {
+      "name": "NodeDeregisteredEvent",
+      "discriminator": [
+        11,
+        208,
+        184,
+        0,
+        65,
+        175,
+        145,
+        31
+      ]
+    },
+    {
+      "name": "NodeExitedEvent",
+      "discriminator": [
+        25,
+        62,
+        156,
+        167,
+        96,
+        234,
+        15,
+        143
+      ]
+    },
+    {
+      "name": "NodeRegisteredEvent",
+      "discriminator": [
+        25,
+        72,
+        1,
+        2,
+        181,
+        218,
+        112,
+        114
+      ]
+    },
+    {
+      "name": "OversizedDataReportedEvent",
+      "discriminator": [
+        134,
+        125,
+        141,
+        42,
+        9,
+        147,
+        173,
+        247
+      ]
+    },
+    {
+      "name": "PoSEvent",
+      "discriminator": [
+        113,
+        224,
+        173,
+        158,
+        213,
+        243,
+        179,
+        29
+      ]
+    },
+    {
+      "name": "ReplacementRequestedEvent",
+      "discriminator": [
+        6,
+        56,
+        253,
+        229,
+        48,
+        98,
+        81,
+        239
+      ]
+    },
+    {
+      "name": "ReplacementVerifiedEvent",
+      "discriminator": [
+        24,
+        142,
+        68,
+        32,
+        93,
+        69,
+        186,
+        254
+      ]
+    },
+    {
+      "name": "RewardEvent",
+      "discriminator": [
+        9,
+        66,
+        81,
+        127,
+        29,
+        14,
+        62,
+        86
+      ]
+    },
+    {
+      "name": "TimeoutSlashedEvent",
+      "discriminator": [
+        49,
+        90,
+        106,
+        37,
+        22,
+        122,
+        36,
+        143
+      ]
+    },
+    {
+      "name": "UploadEvent",
+      "discriminator": [
+        25,
+        97,
+        27,
+        86,
+        93,
+        217,
+        68,
+        34
+      ]
+    },
+    {
+      "name": "UserSlashedEvent",
+      "discriminator": [
+        193,
+        111,
+        100,
+        43,
+        114,
+        208,
+        249,
+        53
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "TooManyUploads",
+      "msg": "Exceeded maximum upload for this account"
+    },
+    {
+      "code": 6001,
+      "name": "TooManyReports",
+      "msg": "Can only submit one report for data"
+    },
+    {
+      "code": 6002,
+      "name": "TooManySubmissions",
+      "msg": "Submissions exceed maximum PoS submissions"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidTreasury",
+      "msg": "Invalid protocol treasury"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidUploader",
+      "msg": "Invalid upload payer"
+    },
+    {
+      "code": 6005,
+      "name": "NoPoSSubmitted",
+      "msg": "No proof of storage submitted"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidShard",
+      "msg": "Shard marked as invalid"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidStorageDuration",
+      "msg": "Invalid storage duration"
+    },
+    {
+      "code": 6008,
+      "name": "AccountNotWritable",
+      "msg": "Node accounts must be writable"
+    },
+    {
+      "code": 6009,
+      "name": "SerializationError",
+      "msg": "Failed to serialize node account"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidNodeAssignments",
+      "msg": "Invalid node assignment"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidShardSizes",
+      "msg": "Invalid shard sizes"
+    },
+    {
+      "code": 6012,
+      "name": "DuplicateNodeAccount",
+      "msg": "Duplicate node account provided"
+    },
+    {
+      "code": 6013,
+      "name": "NodeNotInShard",
+      "msg": "Node not in shard"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidUpload",
+      "msg": "Invalid upload"
+    },
+    {
+      "code": 6015,
+      "name": "InsufficientAccounts",
+      "msg": "Insufficient accounts. Provide matching number of replacement"
+    },
+    {
+      "code": 6016,
+      "name": "PendingReplacement",
+      "msg": "Pending replacement. Encourage replacement to submit PoS"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidState",
+      "msg": "Invalid state, has no upload"
+    },
+    {
+      "code": 6018,
+      "name": "NodeAlreadyRegistered",
+      "msg": "Node already registered"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidSubmission",
+      "msg": "Invalid PoS submission"
+    },
+    {
+      "code": 6020,
+      "name": "InvalidSizeReport",
+      "msg": "Invalid size report"
+    },
+    {
+      "code": 6021,
+      "name": "SizeReportTimeout",
+      "msg": "Size report timeout expired"
+    },
+    {
+      "code": 6022,
+      "name": "ShardNotInvalid",
+      "msg": "Shard not marked as invalid"
+    },
+    {
+      "code": 6023,
+      "name": "InsufficientReports",
+      "msg": "Insufficient oversized reports"
+    },
+    {
+      "code": 6024,
+      "name": "MissingPoSData",
+      "msg": "Missing PoS data"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidUserPenalty",
+      "msg": "Invalid user slash penalty"
+    },
+    {
+      "code": 6026,
+      "name": "InsufficientFee",
+      "msg": "Insufficient fee provided"
+    },
+    {
+      "code": 6027,
+      "name": "TransferFailed",
+      "msg": "Transfer failed"
+    },
+    {
+      "code": 6028,
+      "name": "EscrowUnderfunded",
+      "msg": "Escrow account underfunded"
+    },
+    {
+      "code": 6029,
+      "name": "UploadLimitExceeded",
+      "msg": "Upload limit exceeded for payer"
+    },
+    {
+      "code": 6030,
+      "name": "InvalidMinFee",
+      "msg": "Invalid minimum fee"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidSize",
+      "msg": "Invalid data size"
+    },
+    {
+      "code": 6032,
+      "name": "InvalidShardCount",
+      "msg": "Invalid shard count"
+    },
+    {
+      "code": 6033,
+      "name": "InvalidShardSize",
+      "msg": "Invalid shard size"
+    },
+    {
+      "code": 6034,
+      "name": "InvalidHash",
+      "msg": "Invalid data hash"
+    },
+    {
+      "code": 6035,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds"
+    },
+    {
+      "code": 6036,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidShardId",
+      "msg": "Invalid shard ID"
+    },
+    {
+      "code": 6038,
+      "name": "InsufficientNodes",
+      "msg": "Insufficient nodes available"
+    },
+    {
+      "code": 6039,
+      "name": "Unauthorized",
+      "msg": "Unauthorized access"
+    },
+    {
+      "code": 6040,
+      "name": "AlreadyClaimed",
+      "msg": "Already claimed rewards"
+    },
+    {
+      "code": 6041,
+      "name": "InvalidFeeSplit",
+      "msg": "Invalid fee split"
+    },
+    {
+      "code": 6042,
+      "name": "InvalidShardRange",
+      "msg": "Invalid shard range"
+    },
+    {
+      "code": 6043,
+      "name": "InvalidPaymentRate",
+      "msg": "Invalid payment rate"
+    },
+    {
+      "code": 6044,
+      "name": "InvalidEpochs",
+      "msg": "Invalid epochs"
+    },
+    {
+      "code": 6045,
+      "name": "InvalidPenalty",
+      "msg": "Invalid penalty"
+    },
+    {
+      "code": 6046,
+      "name": "InvalidMerkleProof",
+      "msg": "Invalid Merkle proof"
+    },
+    {
+      "code": 6047,
+      "name": "NotInitialized",
+      "msg": "Program not initialized"
+    },
+    {
+      "code": 6048,
+      "name": "InsufficientReward",
+      "msg": "Insufficient reward amount"
+    },
+    {
+      "code": 6049,
+      "name": "InvalidChallengerSignature",
+      "msg": "Invalid challenger signature"
+    },
+    {
+      "code": 6050,
+      "name": "ChallengerIsNode",
+      "msg": "Challenger cannot be the node"
+    },
+    {
+      "code": 6051,
+      "name": "InvalidChallenger",
+      "msg": "Challenger must be one of the assigned nodes"
+    },
+    {
+      "code": 6052,
+      "name": "InvalidSlotsPerEpoch",
+      "msg": "Invalid slots per epoch"
+    },
+    {
+      "code": 6053,
+      "name": "InvalidHex",
+      "msg": "Invalid hex string"
+    },
+    {
+      "code": 6054,
+      "name": "InvalidStake",
+      "msg": "Invalid stake amount"
+    },
+    {
+      "code": 6055,
+      "name": "InsufficientStake",
+      "msg": "Insufficient stake"
+    },
+    {
+      "code": 6056,
+      "name": "InvalidNodeAccount",
+      "msg": "Invalid node account"
+    },
+    {
+      "code": 6057,
+      "name": "NodeHasActiveUploads",
+      "msg": "Node has active uploads"
+    },
+    {
+      "code": 6058,
+      "name": "NoReplacementAvailable",
+      "msg": "No replacement node available"
+    },
+    {
+      "code": 6059,
+      "name": "SingleNodeShard",
+      "msg": "Single-node shard cannot submit PoS"
+    },
+    {
+      "code": 6060,
+      "name": "InvalidTimeout",
+      "msg": "Invalid timeout"
+    },
+    {
+      "code": 6061,
+      "name": "InvalidReplacement",
+      "msg": "Invalid replacement account"
+    },
+    {
+      "code": 6062,
+      "name": "PoSAlreadySubmitted",
+      "msg": "PoS already submitted"
+    },
+    {
+      "code": 6063,
+      "name": "TimeoutNotExpired",
+      "msg": "Timeout not expired"
+    },
+    {
+      "code": 6064,
+      "name": "InvalidReplacementAccount",
+      "msg": "Invalid replacement account data"
+    }
+  ],
+  "types": [
+    {
+      "name": "ConfigInitializedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_fee_percent",
+            "type": "u64"
+          },
+          {
+            "name": "node_fee_percent",
+            "type": "u64"
+          },
+          {
+            "name": "shard_min_mb",
+            "type": "u64"
+          },
+          {
+            "name": "epochs_total",
+            "type": "u64"
+          },
+          {
+            "name": "slash_penalty_percent",
+            "type": "u64"
+          },
+          {
+            "name": "min_shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "max_shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "slots_per_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "min_node_stake",
+            "type": "u64"
+          },
+          {
+            "name": "replacement_timeout_epochs",
+            "type": "u64"
+          },
+          {
+            "name": "min_lamports_per_upload",
+            "type": "u64"
+          },
+          {
+            "name": "user_slash_penalty_percent",
+            "type": "u64"
+          },
+          {
+            "name": "reporting_window",
+            "type": "u64"
+          },
+          {
+            "name": "oversized_report_threshold",
+            "type": "f64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigUpdatedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sol_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_fee_percent",
+            "type": "u64"
+          },
+          {
+            "name": "node_fee_percent",
+            "type": "u64"
+          },
+          {
+            "name": "shard_min_mb",
+            "type": "u64"
+          },
+          {
+            "name": "epochs_total",
+            "type": "u64"
+          },
+          {
+            "name": "slash_penalty_percent",
+            "type": "u64"
+          },
+          {
+            "name": "min_shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "max_shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "slots_per_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "min_node_stake",
+            "type": "u64"
+          },
+          {
+            "name": "replacement_timeout_epochs",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escrow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Node",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          },
+          {
+            "name": "upload_count",
+            "type": "u64"
+          },
+          {
+            "name": "last_pos_time",
+            "type": "i64"
+          },
+          {
+            "name": "last_claimed_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeDeregisteredEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeExitedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeRegisteredEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NodeRegistry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nodes",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OversizedDataReportedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "declared_size_mb",
+            "type": "u64"
+          },
+          {
+            "name": "actual_size_mb",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OversizedReport",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "actual_size_mb",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoSEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "challenger",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoSSubmission",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "docs": [
+              "Hash of the data being verified."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "docs": [
+              "ID of the shard being verified."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "merkle_root",
+            "docs": [
+              "Optional Merkle root for PoS verification."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "merkle_proof",
+            "docs": [
+              "Optional Merkle proof path for the leaf."
+            ],
+            "type": {
+              "option": {
+                "vec": {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "leaf",
+            "docs": [
+              "Optional leaf hash being verified."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "challenger_signature",
+            "docs": [
+              "Optional challenger signature for PoS verification."
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  64
+                ]
+              }
+            }
+          },
+          {
+            "name": "challenger_pubkey",
+            "docs": [
+              "Optional public key of the challenger."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "actual_size_mb",
+            "docs": [
+              "Optional actual size in MB for oversized data reporting."
+            ],
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Replacement",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "exiting_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "replacement_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "pos_submitted",
+            "type": "bool"
+          },
+          {
+            "name": "request_epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReplacementRequestedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "exiting_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "replacement_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "storage_fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReplacementVerifiedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "exiting_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "replacement_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ShardInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "node_keys",
+            "type": {
+              "array": [
+                "pubkey",
+                3
+              ]
+            }
+          },
+          {
+            "name": "verified_count",
+            "type": "u8"
+          },
+          {
+            "name": "size_mb",
+            "type": "u64"
+          },
+          {
+            "name": "challenger",
+            "type": "pubkey"
+          },
+          {
+            "name": "oversized_reports",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "OversizedReport"
+                }
+              }
+            }
+          },
+          {
+            "name": "rewarded_nodes",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ShardReplacement",
+      "docs": [
+        "Structure defining a shard replacement request with data hash and shard ID."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StorageConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "sol_per_gb",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_fee_percent",
+            "type": "u64"
+          },
+          {
+            "name": "node_fee_percent",
+            "type": "u64"
+          },
+          {
+            "name": "shard_min_mb",
+            "type": "u64"
+          },
+          {
+            "name": "epochs_total",
+            "type": "u64"
+          },
+          {
+            "name": "slash_penalty_percent",
+            "type": "u64"
+          },
+          {
+            "name": "min_shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "max_shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "slots_per_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "min_node_stake",
+            "type": "u64"
+          },
+          {
+            "name": "replacement_timeout_epochs",
+            "type": "u64"
+          },
+          {
+            "name": "min_lamports_per_upload",
+            "type": "u64"
+          },
+          {
+            "name": "user_slash_penalty_percent",
+            "type": "u64"
+          },
+          {
+            "name": "reporting_window",
+            "type": "u64"
+          },
+          {
+            "name": "max_user_uploads",
+            "type": "u64"
+          },
+          {
+            "name": "oversized_report_threshold",
+            "type": "f64"
+          },
+          {
+            "name": "max_submssions",
+            "type": "u64"
+          },
+          {
+            "name": "is_initialized",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TimeoutSlashedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "exiting_node",
+            "type": "pubkey"
+          },
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "slash_amount",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_amount",
+            "type": "u64"
+          },
+          {
+            "name": "caller_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Upload",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "size_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "node_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "payer",
+            "type": "pubkey"
+          },
+          {
+            "name": "upload_time",
+            "type": "i64"
+          },
+          {
+            "name": "storage_duration_days",
+            "type": "u64"
+          },
+          {
+            "name": "expiry_time",
+            "type": "i64"
+          },
+          {
+            "name": "current_slot",
+            "type": "u64"
+          },
+          {
+            "name": "shards",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ShardInfo"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "UploadEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "upload_pda",
+            "type": "pubkey"
+          },
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "size_bytes",
+            "type": "u64"
+          },
+          {
+            "name": "shard_count",
+            "type": "u8"
+          },
+          {
+            "name": "payer",
+            "type": "pubkey"
+          },
+          {
+            "name": "nodes",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "storage_duration_days",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserSlashedEvent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "payer",
+            "type": "pubkey"
+          },
+          {
+            "name": "data_hash",
+            "type": "string"
+          },
+          {
+            "name": "shard_id",
+            "type": "u8"
+          },
+          {
+            "name": "slash_amount",
+            "type": "u64"
+          },
+          {
+            "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "actual_size_bytes",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserUploadKeys",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "type": "pubkey"
+          },
+          {
+            "name": "uploads",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -29,11 +29,12 @@ pub fn process_slash_user(ctx: Context<SlashUser>, data_hash: String, shard_id: 
     require!(upload.data_hash == data_hash, SoladError::InvalidHash);
     require!(shard_id < upload.shard_count, SoladError::InvalidShardId);
 
-    // Store data needed for escrow_seeds
+    // Store data needed for escrow_seeds and calculations
     let data_hash_bytes = upload.data_hash.as_bytes();
     let payer_ref = upload.payer.as_ref();
     let node_lamports = upload.node_lamports;
-    let size_mb = upload.size_mb;
+    let size_bytes = upload.size_bytes;
+    let size_mb = (size_bytes + (1024 * 1024 - 1)) / (1024 * 1024); // Ceiling to MB
     let payer = upload.payer;
 
     // Collect event data (payer) upfront
@@ -53,7 +54,7 @@ pub fn process_slash_user(ctx: Context<SlashUser>, data_hash: String, shard_id: 
         .iter()
         .filter(|&&k| k != Pubkey::default())
         .count();
-    let required_reports = (node_count as u64 * 2) / 3;
+    let required_reports = ((node_count as u64 * 2) / 3).max(1);
     require!(
         shard.oversized_reports.len() as u64 >= required_reports,
         SoladError::InsufficientReports
@@ -110,7 +111,7 @@ pub fn process_slash_user(ctx: Context<SlashUser>, data_hash: String, shard_id: 
     }
 
     // Collect event data for shard before modifying it
-    let actual_size_mb = shard
+    let actual_size_bytes = shard
         .oversized_reports
         .first()
         .map(|r| r.actual_size_mb)
@@ -145,7 +146,7 @@ pub fn process_slash_user(ctx: Context<SlashUser>, data_hash: String, shard_id: 
         shard_id,
         slash_amount,
         refund_amount,
-        actual_size_mb,
+        actual_size_bytes,
     });
 
     Ok(())
@@ -172,10 +173,12 @@ pub struct SlashUser<'info> {
         bump
     )]
     pub escrow: Account<'info, Escrow>,
+    /// CHECK: Safe
     #[account(mut)]
     pub payer: AccountInfo<'info>,
     #[account(mut)]
     pub config: Account<'info, StorageConfig>,
+    /// CHECK: Safe
     #[account(mut, address = config.treasury)]
     pub treasury: AccountInfo<'info>,
     pub system_program: Program<'info, System>,

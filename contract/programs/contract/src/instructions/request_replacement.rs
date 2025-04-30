@@ -1,4 +1,4 @@
-pub use anchor_lang::prelude::*;
+use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use sha2::{Digest, Sha256};
 
@@ -6,36 +6,41 @@ use crate::{
     errors::SoladError,
     events::{NodeExitedEvent, ReplacementRequestedEvent},
     states::{
-        Escrow, Node, Replacement, StorageConfig, Upload, NODE_SEED, REPLACEMENT_SEED,
-        STAKE_ESCROW_SEED, UPLOAD_SEED,
+        Escrow, Node, NodeRegistry, Replacement, StorageConfig, Upload, NODE_SEED,
+        REPLACEMENT_SEED, STAKE_ESCROW_SEED, UPLOAD_SEED,
     },
 };
 
-// Handles node replacement or exit from a shard.
-// This function allows a node to exit a shard if it’s the last node or request
-// a replacement if multiple nodes are assigned. Replacement nodes are selected
-// pseudo-randomly based on stake weight, ensuring fairness. The function manages
-// stake transfers and updates shard assignments, emitting events for tracking.
-/// Requests replacement or exit.
-/// # Arguments
-/// * `ctx` - Context containing node, upload, replacement, and stake escrow accounts.
-/// * `data_hash` - Hash of the data being stored.
-/// * `shard_id` - ID of the shard to exit or replace.
-/// # Errors
-/// Returns errors for invalid hashes, unauthorized access, or lack of replacement nodes.
 pub fn process_request_replacement(
     ctx: Context<RequestReplacement>,
     data_hash: String,
     shard_id: u8,
+    uploader: Pubkey,
 ) -> Result<()> {
+    let node = &mut ctx.accounts.node;
+    msg!("Node account key: {}", node.key());
+    msg!("Node account owner: {}", node.owner);
+    msg!("Node account is_active: {}", node.is_active);
+    msg!("Node account upload_count: {}", node.upload_count);
+
     let config = &ctx.accounts.config;
     require!(config.is_initialized, SoladError::NotInitialized);
+    require!(
+        ctx.accounts.treasury.key() == ctx.accounts.config.treasury,
+        SoladError::InvalidTreasury
+    );
 
     let node = &mut ctx.accounts.node;
-    // Extract immutable data from upload before mutable borrow
-    let upload = &ctx.accounts.upload; // Immutable borrow first
+    require!(
+        node.owner == ctx.accounts.owner.key(),
+        SoladError::Unauthorized
+    );
+
+    let upload = &ctx.accounts.upload;
     require!(upload.data_hash == data_hash, SoladError::InvalidHash);
     require!(shard_id < upload.shard_count, SoladError::InvalidShardId);
+    require!(upload.payer == uploader, SoladError::InvalidUploader);
+
     let is_last_shard = upload.shard_count == 1
         && upload.shards[shard_id as usize]
             .node_keys
@@ -44,36 +49,32 @@ pub fn process_request_replacement(
             .count()
             == 1;
 
-    // Now borrow upload mutably
+    let node_count = upload.shards[shard_id as usize]
+        .node_keys
+        .iter()
+        .filter(|&&k| k != Pubkey::default())
+        .count();
+
     let upload = &mut ctx.accounts.upload;
     let shard = &mut upload.shards[shard_id as usize];
     require!(
         shard.node_keys.contains(&node.key()),
         SoladError::Unauthorized
     );
-    require!(
-        node.owner == ctx.accounts.owner.key(),
-        SoladError::Unauthorized
-    );
 
-    let node_count = shard
-        .node_keys
-        .iter()
-        .filter(|&&k| k != Pubkey::default())
-        .count();
+    node.is_active = false;
+    node.upload_count = node
+        .upload_count
+        .checked_sub(1)
+        .ok_or(SoladError::MathOverflow)?;
 
     if node_count == 1 || is_last_shard {
-        // Single-node or last shard: exit
         for key in shard.node_keys.iter_mut() {
             if *key == node.key() {
                 *key = Pubkey::default();
                 break;
             }
         }
-        node.upload_count = node
-            .upload_count
-            .checked_sub(1)
-            .ok_or(SoladError::MathOverflow)?;
 
         let stake_escrow_seeds = &[
             STAKE_ESCROW_SEED,
@@ -100,19 +101,29 @@ pub fn process_request_replacement(
 
         Ok(())
     } else {
-        // Multi-node: find replacement
-        let available_nodes = &ctx.remaining_accounts;
+        let replacement = ctx
+            .accounts
+            .replacement
+            .as_mut()
+            .ok_or(SoladError::InvalidNodeAccount)?;
+        let node_registry = ctx.accounts.node_registry.clone();
         let mut node_stakes = Vec::new();
         let mut total_stake = 0u64;
-        for node_account in available_nodes.iter() {
+        for (i, node_key) in node_registry.nodes.iter().enumerate() {
+            let node_account = &ctx.remaining_accounts[i];
+            require!(
+                node_account.key() == *node_key,
+                SoladError::InvalidNodeAccount
+            );
             let node_data = node_account.data.borrow();
             let candidate: &Node = &Node::try_deserialize(&mut node_data.as_ref())
                 .map_err(|_| SoladError::InvalidNodeAccount)?;
-            if candidate.owner.key() != node.key()
-                && !shard.node_keys.contains(&candidate.owner.key())
+            if candidate.is_active
+                && node_key != &node.key()
+                && !shard.node_keys.contains(node_key)
                 && candidate.stake_amount >= config.min_node_stake
             {
-                node_stakes.push((node_account.key(), candidate.stake_amount));
+                node_stakes.push((node_key, candidate.stake_amount));
                 total_stake = total_stake
                     .checked_add(candidate.stake_amount)
                     .ok_or(SoladError::MathOverflow)?;
@@ -130,25 +141,24 @@ pub fn process_request_replacement(
         rng_state ^= rng_state << 17;
         let target = rng_state % total_stake;
         let mut cumulative = 0u64;
-        let mut replacement_key = node_stakes[0].0;
+        let mut replacement_key = *node_stakes[0].0;
 
         for (key, stake) in node_stakes.iter() {
             cumulative = cumulative
                 .checked_add(*stake)
                 .ok_or(SoladError::MathOverflow)?;
             if target < cumulative {
-                replacement_key = *key;
+                replacement_key = **key;
                 break;
             }
         }
 
-        let replacement = &mut ctx.accounts.replacement;
         replacement.exiting_node = node.key();
         replacement.replacement_node = replacement_key;
         replacement.data_hash = data_hash.clone();
         replacement.shard_id = shard_id;
         replacement.pos_submitted = false;
-        replacement.request_epoch = Clock::get()?.slot / config.slots_per_epoch;
+        replacement.request_epoch = current_slot / config.slots_per_epoch;
 
         for key in shard.node_keys.iter_mut() {
             if *key == node.key() {
@@ -157,16 +167,12 @@ pub fn process_request_replacement(
             }
         }
 
-        node.upload_count = node
-            .upload_count
-            .checked_sub(1)
-            .ok_or(SoladError::MathOverflow)?;
-
         emit!(ReplacementRequestedEvent {
-            exiting_node: node.key(),
-            replacement_node: replacement_key,
             data_hash,
             shard_id,
+            exiting_node: node.key(),
+            replacement_node: replacement_key,
+            storage_fee: upload.node_lamports,
         });
 
         Ok(())
@@ -174,7 +180,7 @@ pub fn process_request_replacement(
 }
 
 #[derive(Accounts)]
-#[instruction(data_hash: String, shard_id: u8)]
+#[instruction(data_hash: String, shard_id: u8, uploader: Pubkey)]
 pub struct RequestReplacement<'info> {
     #[account(
         mut,
@@ -184,7 +190,7 @@ pub struct RequestReplacement<'info> {
     pub node: Account<'info, Node>,
     #[account(
         mut,
-        seeds = [UPLOAD_SEED, data_hash.as_bytes(), upload.payer.as_ref()],
+        seeds = [UPLOAD_SEED, data_hash.as_bytes(), uploader.as_ref()],
         bump
     )]
     pub upload: Account<'info, Upload>,
@@ -193,20 +199,26 @@ pub struct RequestReplacement<'info> {
         payer = owner,
         space = 8 + 32 + 32 + 64 + 1 + 8,
         seeds = [REPLACEMENT_SEED, node.key().as_ref(), data_hash.as_bytes(), &[shard_id]],
-        bump
+        bump,
     )]
-    pub replacement: Account<'info, Replacement>,
+    pub replacement: Option<Account<'info, Replacement>>,
     #[account(
         mut,
         seeds = [STAKE_ESCROW_SEED, owner.key().as_ref()],
         bump
     )]
     pub stake_escrow: Account<'info, Escrow>,
+    #[account(
+        mut,
+        seeds = [b"node_registry"],
+        bump,
+    )]
+    pub node_registry: Account<'info, NodeRegistry>,
     #[account(mut)]
     pub owner: Signer<'info>,
     #[account(mut)]
     pub config: Account<'info, StorageConfig>,
-    /// CHECK: safe
+    /// CHECK: Safe
     #[account(mut)]
     pub treasury: AccountInfo<'info>,
     pub system_program: Program<'info, System>,

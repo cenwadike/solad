@@ -1,4 +1,5 @@
 pub use anchor_lang::prelude::*;
+use anchor_lang::solana_program::clock::UnixTimestamp;
 
 #[event]
 pub struct ConfigInitializedEvent {
@@ -16,6 +17,8 @@ pub struct ConfigInitializedEvent {
     pub replacement_timeout_epochs: u64,
     pub min_lamports_per_upload: u64,
     pub user_slash_penalty_percent: u64,
+    pub reporting_window: u64,
+    pub oversized_report_threshold: f64,
 }
 
 #[event]
@@ -48,10 +51,11 @@ pub struct NodeExitedEvent {
 
 #[event]
 pub struct ReplacementRequestedEvent {
-    pub exiting_node: Pubkey,
-    pub replacement_node: Pubkey,
     pub data_hash: String,
     pub shard_id: u8,
+    pub exiting_node: Pubkey,
+    pub replacement_node: Pubkey,
+    pub storage_fee: u64,
 }
 
 #[event]
@@ -60,6 +64,7 @@ pub struct ReplacementVerifiedEvent {
     pub replacement_node: Pubkey,
     pub data_hash: String,
     pub shard_id: u8,
+    pub timestamp: UnixTimestamp,
 }
 
 #[event]
@@ -80,10 +85,14 @@ pub struct NodeDeregisteredEvent {
 
 #[event]
 pub struct UploadEvent {
+    pub upload_pda: Pubkey,
     pub data_hash: String,
-    pub size_mb: u64,
+    pub size_bytes: u64,
     pub shard_count: u8,
     pub payer: Pubkey,
+    pub nodes: Vec<Pubkey>,
+    pub storage_duration_days: u64,
+    pub timestamp: UnixTimestamp,
 }
 
 #[event]
@@ -91,8 +100,9 @@ pub struct PoSEvent {
     pub data_hash: String,
     pub shard_id: u8,
     pub node: Pubkey,
-    pub merkle_root: String,
+    pub merkle_root: [u8; 32],
     pub challenger: Pubkey,
+    pub timestamp: UnixTimestamp,
 }
 
 #[event]
@@ -110,6 +120,7 @@ pub struct OversizedDataReportedEvent {
     pub node: Pubkey,
     pub declared_size_mb: u64,
     pub actual_size_mb: u64,
+    pub timestamp: UnixTimestamp,
 }
 
 #[event]
@@ -119,5 +130,5 @@ pub struct UserSlashedEvent {
     pub shard_id: u8,
     pub slash_amount: u64,
     pub refund_amount: u64,
-    pub actual_size_mb: u64,
+    pub actual_size_bytes: u64,
 }

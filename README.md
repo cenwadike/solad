@@ -1,12 +1,12 @@
 # SoLad: Solana’s Storage Lad
 
-**Tagline**: $6/GB for 20 years—decentralized storage for Solana’s logs and data.
+**Tagline**: Flexible decentralized storage for Solana’s logs and data.
 
 ## Overview
 
 SoLad is a peer-to-peer storage network for Solana, tackling transient log pruning (RPCs clear logs in days) and centralized explorer risks (e.g., Solscan). It stores Geyser streams, Layer 2 data, and off-chain assets (e.g., NFT metadata) at $6/GB for 20 years. It uses 5-10 shards, each with 3 nodes, for redundancy and speed (8.33MB/s).
 
-- **Client**: Splits data (e.g., 10MB → 5 shards × 2MB).
+- **Client**: Uploads data to one shard ($6/GB/20 years).
 - **Payment**: $6/GB (0.03 SOL/GB at $200/SOL), 25% treasury ($1.50/GB), 75% nodes ($4.50/GB).
 - **Nodes**: Store shards redundantly, earn $0.15/100MB/node (8.7% margin).
 - **Use Case**: 500 dApps, ~275GB/year (2025 estimate).

@@ -1,4 +1,6 @@
+pub mod batch_request_replacement;
 pub mod claim_rewards;
+pub mod close_upload;
 pub mod deregister_node;
 pub mod initialize;
 pub mod register_node;
@@ -9,7 +11,9 @@ pub mod submit_pos;
 pub mod update_config;
 pub mod upload_data;
 
+pub use batch_request_replacement::*;
 pub use claim_rewards::*;
+pub use close_upload::*;
 pub use deregister_node::*;
 pub use initialize::*;
 pub use register_node::*;
