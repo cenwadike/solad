@@ -8,14 +8,14 @@ import {
   SystemProgram,
   TransactionInstruction,
   Commitment,
+  VersionedTransaction,
 } from "@solana/web3.js";
-import { Contract } from "./contract";
 import idl from "../secrete-deps/contract.json";
 import { StorageConfigParams } from "./types";
 
 export class StorageSDK {
   private provider: AnchorProvider;
-  public program: Program<Contract>;
+  public program: Program; // TODO: Import Contract type [public program: Program<Contract>].
 
   constructor(
     readonly connection: Connection,
@@ -27,23 +27,37 @@ export class StorageSDK {
       connection,
       {
         publicKey: wallet.publicKey,
-        signTransaction: (tx: Transaction) => {
-          tx.sign(wallet);
-          return Promise.resolve(tx);
+        signTransaction: async <T extends Transaction | VersionedTransaction>(
+          tx: T
+        ): Promise<T> => {
+          if (tx instanceof Transaction) {
+            tx.sign(wallet); // assuming wallet is a Keypair
+            return tx;
+          } else {
+            tx.sign([wallet]); // VersionedTransaction expects sign([]) with Signers
+            return tx;
+          }
         },
-        signAllTransactions: (txs: Transaction[]) => {
-          return Promise.resolve(
-            txs.map((tx) => {
+        signAllTransactions: async <
+          T extends Transaction | VersionedTransaction
+        >(
+          txs: T[]
+        ): Promise<T[]> => {
+          return txs.map((tx) => {
+            if (tx instanceof Transaction) {
               tx.sign(wallet);
               return tx;
-            })
-          );
+            } else {
+              tx.sign([wallet]);
+              return tx;
+            }
+          });
         },
       },
       opts
     );
 
-    this.program = new Program<Contract>(idl as Idl, this.provider);
+    this.program = new Program(idl as Idl, this.provider); // TODO: Import Contract type [public program: Program<Contract>].
   }
 
   // ========================
