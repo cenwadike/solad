@@ -24,3 +24,9 @@ hex = "0.4"
 solana-client = "1.10"
 solana-sdk = "1.10"
 anchor-lang = { version = "0.26", features = ["derive"] }
+dashmap = "6.1.0"
+contract = { git = "https://github.com/cenwadike/solad" }
+anyhow = "1.0.98"
+crossbeam-channel = "0.5.15"
+base64 = "0.22.1"
+bincode = "1.3.3"

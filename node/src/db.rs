@@ -1,4 +1,4 @@
-use rocksdb::{DB, Options};
+use rocksdb::{Options, DB};
 use std::path::Path;
 use std::sync::Arc;
 // use crate::anchor::MyEvent;
