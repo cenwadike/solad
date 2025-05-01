@@ -31,10 +31,10 @@ export class StorageSDK {
           tx: T
         ): Promise<T> => {
           if (tx instanceof Transaction) {
-            tx.sign(wallet); // assuming wallet is a Keypair
+            tx.sign(wallet);
             return tx;
           } else {
-            tx.sign([wallet]); // VersionedTransaction expects sign([]) with Signers
+            tx.sign([wallet]);
             return tx;
           }
         },
@@ -71,6 +71,24 @@ export class StorageSDK {
         [Buffer.from("storage_config")],
         programId
       )[0],
+
+      // Node mgmt
+      nodeRegistry: PublicKey.findProgramAddressSync(
+        [Buffer.from("node_registry")],
+        programId
+      )[0],
+      nodeAccount(owner: PublicKey) {
+        return PublicKey.findProgramAddressSync(
+          [Buffer.from("node"), owner.toBuffer()],
+          programId
+        )[0];
+      },
+      stakeEscrow(owner: PublicKey) {
+        return PublicKey.findProgramAddressSync(
+          [Buffer.from("stake_escrow"), owner.toBuffer()],
+          programId
+        )[0];
+      },
     };
   }
 
@@ -103,6 +121,25 @@ export class StorageSDK {
       .accounts({
         storageConfig: pdas.storageConfig,
         authority: this.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+  }
+
+  // Node mgmt
+  async createRegisterNodeIx(
+    stakeAmount: number
+  ): Promise<TransactionInstruction> {
+    const pdas = StorageSDK.derivePdas(this.programId);
+    const nodePda = pdas.nodeAccount(this.wallet.publicKey);
+    const stakeEscrow = pdas.stakeEscrow(this.wallet.publicKey);
+
+    return this.program.methods
+      .registerNode(new anchor.BN(stakeAmount))
+      .accounts({
+        owner: this.wallet.publicKey,
+        node: nodePda,
+        stakeEscrow: stakeEscrow,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
