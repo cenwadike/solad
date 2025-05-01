@@ -12,6 +12,7 @@ import {
 } from "@solana/web3.js";
 import idl from "../secrete-deps/contract.json";
 import { StorageConfigParams } from "./types";
+import { PDAHelper } from "./utils/pda-helper";
 
 export class StorageSDK {
   private provider: AnchorProvider;
@@ -57,46 +58,18 @@ export class StorageSDK {
       opts
     );
 
-    this.program = new Program(idl as Idl, this.provider); // TODO: Import Contract type [public program: Program<Contract>].
+    this.program = new Program(idl as Idl, this.provider); // TODO: Import Contract type [new Program<Contract>].
   }
 
   // ========================
   // Core - Define instruction builders.
   // ========================
 
-  static derivePdas(programId: PublicKey) {
-    return {
-      // config mgmt
-      storageConfig: PublicKey.findProgramAddressSync(
-        [Buffer.from("storage_config")],
-        programId
-      )[0],
-
-      // Node mgmt
-      nodeRegistry: PublicKey.findProgramAddressSync(
-        [Buffer.from("node_registry")],
-        programId
-      )[0],
-      nodeAccount(owner: PublicKey) {
-        return PublicKey.findProgramAddressSync(
-          [Buffer.from("node"), owner.toBuffer()],
-          programId
-        )[0];
-      },
-      stakeEscrow(owner: PublicKey) {
-        return PublicKey.findProgramAddressSync(
-          [Buffer.from("stake_escrow"), owner.toBuffer()],
-          programId
-        )[0];
-      },
-    };
-  }
-
   // Config mgmt
   async createInitializeIx(
     params: StorageConfigParams
   ): Promise<TransactionInstruction> {
-    const pdas = StorageSDK.derivePdas(this.programId);
+    const pdas = new PDAHelper(this.programId);
 
     return this.program.methods
       .initialize(
@@ -130,7 +103,7 @@ export class StorageSDK {
   async createRegisterNodeIx(
     stakeAmount: number
   ): Promise<TransactionInstruction> {
-    const pdas = StorageSDK.derivePdas(this.programId);
+    const pdas = new PDAHelper(this.programId);
     const nodePda = pdas.nodeAccount(this.wallet.publicKey);
     const stakeEscrow = pdas.stakeEscrow(this.wallet.publicKey);
 
