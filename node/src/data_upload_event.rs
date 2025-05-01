@@ -1,3 +1,4 @@
+use base64::Engine;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use solana_client::{
@@ -8,7 +9,7 @@ use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{db::Database, error::ApiError};
+use crate::error::ApiError;
 
 // Matches UploadEvent struct in contract
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -107,7 +108,7 @@ impl UploadEventListener {
 
     async fn parse_upload_event(&self, log: &str) -> Option<UploadEvent> {
         let base64_data = log.strip_prefix("Program data: ")?.trim();
-        let decoded_data = match base64::decode(base64_data) {
+        let decoded_data = match base64::prelude::BASE64_STANDARD.decode(base64_data) {
             Ok(data) => data,
             Err(_) => return None,
         };
@@ -164,7 +165,7 @@ impl UploadEventConsumer {
             .rpc_client
             .get_account(&self.config.node_pubkey)
             .await
-            .map_err(|e| ApiError::NodeNotRegistered)?;
+            .map_err(|_e| ApiError::NodeNotRegistered)?;
         if node_account.owner != self.config.program_id {
             return Err(ApiError::NodeNotRegistered);
         }
@@ -177,7 +178,7 @@ impl UploadEventConsumer {
             .rpc_client
             .get_account(&escrow_pda)
             .await
-            .map_err(|e| ApiError::PaymentNotVerified)?;
+            .map_err(|_e| ApiError::PaymentNotVerified)?;
 
         if escrow_account.lamports == 0 {
             println!("Reporting payer {} for slashing: no payment", event.payer);
