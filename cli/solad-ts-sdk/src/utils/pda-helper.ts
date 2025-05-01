@@ -34,4 +34,20 @@ export class PDAHelper {
       this.programId
     )[0];
   }
+
+  // Data Ops: upload
+  upload(dataHash: string, payer: PublicKey) {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("upload"), Buffer.from(dataHash), payer.toBuffer()],
+      this.programId
+    )[0];
+  }
+
+  // Data Ops: upload escrow
+  uploadEscrow(dataHash: string, payer: PublicKey) {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), Buffer.from(dataHash), payer.toBuffer()],
+      this.programId
+    )[0];
+  }
 }

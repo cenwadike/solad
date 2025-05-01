@@ -13,6 +13,7 @@ import {
 import idl from "../secrete-deps/contract.json";
 import { StorageConfigParams } from "./types";
 import { PDAHelper } from "./utils/pda-helper";
+import { StateHelper } from "./utils/state-helper";
 
 export class StorageSDK {
   private provider: AnchorProvider;
@@ -115,6 +116,42 @@ export class StorageSDK {
         stakeEscrow: stakeEscrow,
         systemProgram: SystemProgram.programId,
       })
+      .instruction();
+  }
+
+  // Data Ops
+  async createUploadIx(params: {
+    dataHash: string;
+    sizeBytes: number;
+    shardCount: number;
+    duration: number;
+    nodes: PublicKey[];
+  }): Promise<TransactionInstruction> {
+    const pdas = new PDAHelper(this.programId);
+    const storageConfig = await new StateHelper(
+      this.programId
+    ).getStorageConfig(this.program);
+
+    return this.program.methods
+      .uploadData(
+        params.dataHash,
+        new anchor.BN(params.sizeBytes),
+        params.shardCount,
+        new anchor.BN(params.duration)
+      )
+      .accounts({
+        config: pdas.storageConfig,
+        payer: this.wallet.publicKey,
+        treasury: storageConfig.treasury,
+        systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts(
+        params.nodes.map((pubkey) => ({
+          pubkey,
+          isWritable: true,
+          isSigner: false,
+        }))
+      )
       .instruction();
   }
 }
