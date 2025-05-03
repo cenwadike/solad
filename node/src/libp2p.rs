@@ -23,6 +23,7 @@ use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
+use crate::data_store::DataStore;
 use crate::db::Database;
 use crate::error::ApiError;
 use crate::solad_client::SoladClient;
@@ -35,6 +36,7 @@ pub struct PeerInfo {
     pub pubkey: Pubkey,
     pub multiaddr: Multiaddr,
     pub peer_id: PeerId,
+    pub last_seen: u64, // Timestamp of last activity
 }
 
 // Message structure for gossip
@@ -42,6 +44,7 @@ pub struct PeerInfo {
 struct GossipMessage {
     key: String,
     data: Vec<u8>,
+    format: String,
     origin_pubkey: String,
     upload_pda: String,
     timestamp: u64, // For replay protection
@@ -58,7 +61,7 @@ struct SoladBehaviour {
 // Structure to manage libp2p swarm
 pub struct NetworkManager {
     swarm: Arc<AsyncMutex<Swarm<SoladBehaviour>>>,
-    peers: HashMap<String, PeerInfo>,
+    peers: Arc<AsyncMutex<HashMap<String, PeerInfo>>>,
     receiver: mpsc::Receiver<GossipMessage>,
     _sender: mpsc::Sender<GossipMessage>,
     local_data: Arc<AsyncMutex<HashSet<String>>>,
@@ -74,22 +77,16 @@ impl NetworkManager {
         local_key: identity::Keypair,
         peers: Vec<PeerInfo>,
         local_pubkey: Pubkey,
-        rpc_client: &RpcClient,
-        db: Arc<Database>,  // Added to store registration status
-        program_id: Pubkey, // Added to pass program ID for SoladClient
+        rpc_client: Arc<RpcClient>,
+        db: Arc<Database>,
+        program_id: Pubkey,
     ) -> Result<Self, ApiError> {
         let local_peer_id = PeerId::from(local_key.public());
 
-        // Verify that local_pubkey corresponds to local_key (enhances security)
-        let account = rpc_client.get_account(&local_pubkey).await.map_err(|e| {
+        // Verify that local_pubkey corresponds to local_key
+        let _ = rpc_client.get_account(&local_pubkey).await.map_err(|e| {
             ApiError::NetworkError(anyhow::anyhow!("Failed to fetch local account: {}", e))
         })?;
-        if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
-            return Err(ApiError::NetworkError(anyhow::anyhow!(
-                "Local pubkey {} is not a valid node account",
-                local_pubkey
-            )));
-        }
         info!("Verified local node pubkey: {}", local_pubkey);
 
         // Load payer keypair from environment variable
@@ -119,12 +116,9 @@ impl NetworkManager {
             .unwrap_or(false);
 
         if !is_registered {
-            // Check if node account exists on blockchain
             let node_exists = rpc_client.get_account(&node_pda).await.is_ok();
             if !node_exists {
                 info!("Node account does not exist, registering node with stake...");
-                // Register node with a minimum stake (e.g., 1 SOL = 1_000_000_000 lamports)
-                // Assuming storage_config_pubkey is provided externally (e.g., via config in main.rs)
                 let storage_config_pubkey = Pubkey::from_str("YourStorageConfigPubkeyHere")
                     .map_err(|e| {
                         ApiError::NetworkError(anyhow::anyhow!(
@@ -140,12 +134,10 @@ impl NetworkManager {
                     })?;
                 info!("Node registered successfully at PDA: {}", node_pda);
 
-                // Store registration status locally
                 db.inner
                     .put(registration_key.as_bytes(), b"true")
                     .map_err(|e| ApiError::Database(e))?;
             } else {
-                // Node exists on blockchain but not locally marked, update local status
                 db.inner
                     .put(registration_key.as_bytes(), b"true")
                     .map_err(|e| ApiError::Database(e))?;
@@ -163,7 +155,6 @@ impl NetworkManager {
 
         let (_sender, receiver) = mpsc::channel(100);
 
-        // Create gossipsub configuration with enhanced security
         let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10))
             .validation_mode(ValidationMode::Strict)
@@ -188,9 +179,14 @@ impl NetworkManager {
         )
         .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
 
-        let topic = gossipsub::IdentTopic::new("solad-shard");
+        let data_topic = gossipsub::IdentTopic::new("solad-shard");
         gossipsub
-            .subscribe(&topic)
+            .subscribe(&data_topic)
+            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+
+        let discovery_topic = gossipsub::IdentTopic::new("solad-discovery");
+        gossipsub
+            .subscribe(&discovery_topic)
             .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
 
         let transport = tcp::TcpTransport::new(tcp::GenTcpConfig::default())
@@ -214,7 +210,6 @@ impl NetworkManager {
             )
             .build();
 
-        // Wrap swarm in Arc<AsyncMutex<...>>
         let swarm = Arc::new(AsyncMutex::new(swarm));
 
         let listen_addr: Multiaddr =
@@ -239,35 +234,185 @@ impl NetworkManager {
         .into_iter()
         .collect();
 
-        let mut peers_map = HashMap::new();
-        for peer in peers {
-            let ip = peer.multiaddr.iter().find_map(|p| match p {
-                Protocol::Ip4(ip) => Some(ip),
-                _ => None,
-            });
-            if let Some(ip) = ip {
-                if ip_blacklist.iter().any(|net| net.contains(ip)) {
-                    warn!("Skipping blacklisted peer: {}", peer.multiaddr);
-                    continue;
+        #[derive(Clone, Serialize, Deserialize)]
+        struct Node {
+            owner: Pubkey,
+            stake_amount: u64,
+            upload_count: u64,
+            last_pos_time: i64,
+            last_claimed_epoch: u64,
+            is_active: bool,
+        }
+
+        #[derive(Clone, Serialize, Deserialize)]
+        struct PeerDiscoveryMessage {
+            peers: Vec<(Pubkey, Multiaddr, String)>,
+            timestamp: u64,
+            signature: Vec<u8>,
+        }
+
+        async fn validate_active_peers(
+            rpc_client: Arc<RpcClient>,
+            program_id: &Pubkey,
+            peers: Vec<PeerInfo>,
+            ip_blacklist: &HashSet<IpNetwork>,
+        ) -> Result<Vec<PeerInfo>, ApiError> {
+            let (registry_pda, _bump) =
+                Pubkey::find_program_address(&[b"node_registry"], program_id);
+            let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
+            })?;
+            let node_registry: Vec<Pubkey> = serde_json::from_slice(&registry_account.data)
+                .map_err(|e| {
+                    ApiError::NetworkError(anyhow::anyhow!(
+                        "Failed to deserialize node registry: {}",
+                        e
+                    ))
+                })?;
+
+            let node_pdas: Vec<Pubkey> = node_registry
+                .iter()
+                .map(|pubkey| {
+                    Pubkey::find_program_address(&[b"node", pubkey.as_ref()], program_id).0
+                })
+                .collect();
+
+            let node_accounts =
+                rpc_client
+                    .get_multiple_accounts(&node_pdas)
+                    .await
+                    .map_err(|e| {
+                        ApiError::NetworkError(anyhow::anyhow!(
+                            "Failed to fetch node accounts: {}",
+                            e
+                        ))
+                    })?;
+
+            let mut active_nodes = HashSet::new();
+            for (pubkey, account_opt) in node_registry.iter().zip(node_accounts.iter()) {
+                if let Some(account) = account_opt {
+                    if let Ok(node_data) = serde_json::from_slice::<Node>(&account.data) {
+                        if node_data.is_active {
+                            active_nodes.insert(*pubkey);
+                        }
+                    }
                 }
             }
 
-            let account = rpc_client
-                .get_account(&peer.pubkey)
-                .await
-                .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
-            if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
-                warn!("Skipping invalid peer: {}", peer.pubkey);
-                continue;
+            let mut valid_peers = Vec::new();
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            for mut peer in peers {
+                if !active_nodes.contains(&peer.pubkey) {
+                    warn!("Peer {} is not registered or not active", peer.pubkey);
+                    continue;
+                }
+
+                let ip = peer.multiaddr.iter().find_map(|p| match p {
+                    Protocol::Ip4(ip) => Some(ip),
+                    _ => None,
+                });
+                if let Some(ip) = ip {
+                    if ip_blacklist.iter().any(|net| net.contains(ip)) {
+                        warn!("Skipping blacklisted peer: {}", peer.multiaddr);
+                        continue;
+                    }
+                }
+
+                let account = rpc_client
+                    .get_account(&peer.pubkey)
+                    .await
+                    .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+                if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
+                    warn!("Skipping invalid peer: {}", peer.pubkey);
+                    continue;
+                }
+
+                peer.last_seen = now;
+                valid_peers.push(peer);
             }
-            let pubkey_str = peer.pubkey.to_string();
-            peers_map.insert(pubkey_str, peer.clone());
+
+            Ok(valid_peers)
         }
 
-        if peers_map.len() < 4 {
-            return Err(ApiError::NetworkError(anyhow::anyhow!(
-                "Insufficient trusted peers".to_string()
-            )));
+        fn compute_message_hash(peers: &[(Pubkey, Multiaddr, String)], timestamp: u64) -> Vec<u8> {
+            let mut hasher = Sha256::new();
+            for (pubkey, multiaddr, peer_id) in peers {
+                hasher.update(pubkey.to_bytes());
+                hasher.update(multiaddr.to_string().as_bytes());
+                hasher.update(peer_id.as_bytes());
+            }
+            hasher.update(timestamp.to_be_bytes());
+            hasher.finalize().to_vec()
+        }
+
+        async fn verify_discovery_message(
+            message: &PeerDiscoveryMessage,
+            rpc_client: Arc<RpcClient>,
+            program_id: &Pubkey,
+        ) -> Result<Pubkey, ApiError> {
+            let (registry_pda, _bump) =
+                Pubkey::find_program_address(&[b"node_registry"], program_id);
+            let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
+            })?;
+            let node_registry: Vec<Pubkey> = serde_json::from_slice(&registry_account.data)
+                .map_err(|e| {
+                    ApiError::NetworkError(anyhow::anyhow!(
+                        "Failed to deserialize node registry: {}",
+                        e
+                    ))
+                })?;
+
+            let hash = compute_message_hash(&message.peers, message.timestamp);
+            if message.signature.len() != 64 {
+                return Err(ApiError::NetworkError(anyhow::anyhow!(
+                    "Invalid signature length: expected 64 bytes, got {}",
+                    message.signature.len()
+                )));
+            }
+            let mut signature_bytes = [0u8; 64];
+            signature_bytes.copy_from_slice(&message.signature);
+            let signature = solana_sdk::signature::Signature::from(signature_bytes);
+            for pubkey in node_registry {
+                if signature.verify(&pubkey.to_bytes(), &hash) {
+                    return Ok(pubkey);
+                }
+            }
+            Err(ApiError::NetworkError(anyhow::anyhow!(
+                "No valid signature found for discovery message"
+            )))
+        }
+
+        // Initialize peers HashMap with provided peers
+        let mut peers_map = HashMap::new();
+        for peer in peers {
+            let pubkey_str = peer.pubkey.to_string();
+            peers_map.insert(pubkey_str, peer);
+        }
+        let peers = Arc::new(AsyncMutex::new(peers_map));
+        let ip_blacklist = Arc::new(AsyncMutex::new(ip_blacklist));
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let valid_peers = validate_active_peers(
+            rpc_client.clone(),
+            &program_id,
+            peers.lock().await.values().cloned().collect(),
+            &*ip_blacklist.lock().await,
+        )
+        .await?;
+        {
+            let mut peers_map = peers.lock().await;
+            for peer in valid_peers {
+                let pubkey_str = peer.pubkey.to_string();
+                peers_map.insert(pubkey_str, peer);
+            }
         }
 
         let bootstrap_addr: Multiaddr =
@@ -282,32 +427,170 @@ impl NetworkManager {
             .dial(bootstrap_addr.clone())
             .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
 
-        let mut peer_vec: Vec<_> = peers_map.values().collect();
-        peer_vec.shuffle(&mut rand::rng());
-        for peer in peer_vec.iter().take(8) {
-            swarm
-                .lock()
-                .await
-                .dial(peer.multiaddr.clone())
-                .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
-        }
-
-        // Initialize shared state
         let peer_reputation = Arc::new(AsyncMutex::new(HashMap::new()));
         let message_rate = Arc::new(AsyncMutex::new(HashMap::new()));
         let seen_messages = Arc::new(AsyncMutex::new(HashSet::new()));
         let connection_attempts = Arc::new(AsyncMutex::new(HashMap::new()));
+        let last_discovery = Arc::new(AsyncMutex::new(now));
 
-        // Clone Arcs for the async task
         let swarm_clone = Arc::clone(&swarm);
-        let sender_clone = _sender.clone();
-        let peers_clone = peers_map.clone();
+        let peers_clone = Arc::clone(&peers);
         let peer_reputation_clone = Arc::clone(&peer_reputation);
         let message_rate_clone = Arc::clone(&message_rate);
         let seen_messages_clone = Arc::clone(&seen_messages);
         let connection_attempts_clone = Arc::clone(&connection_attempts);
+        let ip_blacklist_clone = Arc::clone(&ip_blacklist);
+        let sender_clone = _sender.clone();
+        let local_key_clone = local_key.clone();
+        let last_discovery_clone = Arc::clone(&last_discovery);
+        let rpc_client_clone = Arc::clone(&rpc_client);
 
-        // Spawn task to handle swarm events
+        task::spawn(async move {
+            loop {
+                task::sleep(Duration::from_secs(60)).await;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                let should_discover = {
+                    let last_discovery_time = *last_discovery_clone.lock().await;
+                    now - last_discovery_time >= 300
+                };
+
+                if should_discover {
+                    let new_peers = match validate_active_peers(
+                        Arc::clone(&rpc_client_clone),
+                        &program_id,
+                        vec![],
+                        &*ip_blacklist_clone.lock().await,
+                    )
+                    .await
+                    {
+                        Ok(peers) => peers,
+                        Err(e) => {
+                            warn!("Failed to fetch peers from NodeRegistry: {}", e);
+                            vec![]
+                        }
+                    };
+
+                    let mut peers_map = peers_clone.lock().await;
+                    let mut swarm = swarm_clone.lock().await;
+
+                    for peer in new_peers {
+                        let pubkey_str = peer.pubkey.to_string();
+                        if pubkey_str != local_pubkey.to_string() {
+                            peers_map.insert(pubkey_str, peer);
+                        }
+                    }
+
+                    peers_map.retain(|_, peer| now - peer.last_seen < 3600);
+
+                    let recent_peers: Vec<(Pubkey, Multiaddr, String)> = peers_map
+                        .values()
+                        .filter(|peer| now - peer.last_seen < 1800)
+                        .map(|peer| {
+                            (
+                                peer.pubkey,
+                                peer.multiaddr.clone(),
+                                peer.peer_id.to_string(),
+                            )
+                        })
+                        .collect();
+
+                    let timestamp = now;
+                    let hash = compute_message_hash(&recent_peers, timestamp);
+                    let signature = match local_key_clone.sign(&hash) {
+                        Ok(sig) => sig,
+                        Err(e) => {
+                            warn!("Failed to sign discovery message: {}", e);
+                            continue;
+                        }
+                    };
+                    let discovery_message = PeerDiscoveryMessage {
+                        peers: recent_peers,
+                        timestamp,
+                        signature: signature.to_vec(),
+                    };
+
+                    let message_bytes = serde_json::to_vec(&discovery_message)
+                        .expect("Serialize discovery message");
+                    if let Err(e) = swarm
+                        .behaviour_mut()
+                        .gossipsub
+                        .publish(discovery_topic.clone(), message_bytes)
+                    {
+                        warn!("Failed to publish discovery message: {}", e);
+                    } else {
+                        info!(
+                            "Published discovery message with {} peers",
+                            discovery_message.peers.len()
+                        );
+                    }
+
+                    // Log the number of seen messages to monitor message history
+                    let seen_messages_count = seen_messages_clone.lock().await.len();
+                    info!("Current number of seen messages: {}", seen_messages_count);
+
+                    let mut recent_peers: Vec<_> = peers_map
+                        .values()
+                        .filter(|peer| now - peer.last_seen < 1800)
+                        .collect();
+                    recent_peers.shuffle(&mut rand::rng());
+                    for peer in recent_peers.iter().take(8) {
+                        // Check peer reputation before dialing
+                        let reputation = peer_reputation_clone.lock().await;
+                        if reputation
+                            .get(&peer.peer_id)
+                            .map_or(false, |&rep| rep < -20)
+                        {
+                            warn!("Skipping peer {} due to low reputation", peer.peer_id);
+                            continue;
+                        }
+
+                        // Log message rate for the peer
+                        let message_rate = message_rate_clone.lock().await;
+                        if let Some((time, count)) = message_rate.get(&peer.peer_id) {
+                            info!(
+                                "Peer {} message rate: {} messages at time {}",
+                                peer.peer_id, count, time
+                            );
+                        }
+
+                        // Log connection attempts for the peer
+                        let connection_attempts = connection_attempts_clone.lock().await;
+                        if let Some((last_attempt, attempts)) =
+                            connection_attempts.get(&peer.peer_id)
+                        {
+                            info!(
+                                "Peer {} has {} connection attempts, last at {}",
+                                peer.peer_id, attempts, last_attempt
+                            );
+                        }
+
+                        if !swarm.is_connected(&peer.peer_id) {
+                            if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
+                                warn!("Failed to dial peer {}: {}", peer.peer_id, e);
+                            } else {
+                                info!("Dialing peer {}", peer.peer_id);
+                            }
+                        }
+                    }
+
+                    *last_discovery_clone.lock().await = now;
+                }
+            }
+        });
+
+        // Second task with new Arc clones
+        let swarm_clone = Arc::clone(&swarm);
+        let peers_clone = Arc::clone(&peers);
+        let peer_reputation_clone = Arc::clone(&peer_reputation);
+        let message_rate_clone = Arc::clone(&message_rate);
+        let seen_messages_clone = Arc::clone(&seen_messages);
+        let connection_attempts_clone = Arc::clone(&connection_attempts);
+        let ip_blacklist_clone = Arc::clone(&ip_blacklist);
+        let rpc_client_clone = Arc::clone(&rpc_client);
+
         task::spawn(async move {
             loop {
                 let event = {
@@ -327,7 +610,6 @@ impl NetworkManager {
                             .unwrap()
                             .as_secs();
 
-                        // Rate limiting
                         {
                             let mut message_rate = message_rate_clone.lock().await;
                             let (last_time, count) = message_rate.entry(source).or_insert((now, 0));
@@ -349,7 +631,6 @@ impl NetworkManager {
                             }
                         }
 
-                        // Check for replay attacks
                         {
                             let mut seen_messages = seen_messages_clone.lock().await;
                             if seen_messages.contains(&message_id) {
@@ -365,7 +646,6 @@ impl NetworkManager {
                             seen_messages.insert(message_id.clone());
                         }
 
-                        // Validate message size
                         if message.data.len() > 64 * 1024 {
                             peer_reputation_clone
                                 .lock()
@@ -377,8 +657,95 @@ impl NetworkManager {
                             continue;
                         }
 
-                        // Process gossip message
-                        if let Ok(gossip_msg) =
+                        if let Ok(discovery_msg) =
+                            serde_json::from_slice::<PeerDiscoveryMessage>(&message.data)
+                        {
+                            let _source_pubkey = match verify_discovery_message(
+                                &discovery_msg,
+                                Arc::clone(&rpc_client_clone),
+                                &program_id,
+                            )
+                            .await
+                            {
+                                Ok(pubkey) => pubkey,
+                                Err(e) => {
+                                    peer_reputation_clone
+                                        .lock()
+                                        .await
+                                        .entry(source)
+                                        .and_modify(|r| *r -= 10)
+                                        .or_insert(-10);
+                                    warn!("Invalid discovery message from {}: {}", source, e);
+                                    continue;
+                                }
+                            };
+
+                            if discovery_msg.timestamp < now - 300
+                                || discovery_msg.timestamp > now + 300
+                            {
+                                peer_reputation_clone
+                                    .lock()
+                                    .await
+                                    .entry(source)
+                                    .and_modify(|r| *r -= 5)
+                                    .or_insert(-5);
+                                warn!("Invalid timestamp in discovery message from {}", source);
+                                continue;
+                            }
+
+                            let mut peers_map = peers_clone.lock().await;
+                            let mut swarm = swarm_clone.lock().await;
+                            let ip_blacklist = ip_blacklist_clone.lock().await;
+
+                            for (pubkey, multiaddr, peer_id_str) in discovery_msg.peers {
+                                let peer_id = match PeerId::from_str(&peer_id_str) {
+                                    Ok(peer_id) => peer_id,
+                                    Err(e) => {
+                                        warn!("Invalid PeerId {}: {}", peer_id_str, e);
+                                        continue;
+                                    }
+                                };
+
+                                let ip = multiaddr.iter().find_map(|p| match p {
+                                    Protocol::Ip4(ip) => Some(ip),
+                                    _ => None,
+                                });
+                                if let Some(ip) = ip {
+                                    if ip_blacklist.iter().any(|net| net.contains(ip)) {
+                                        warn!("Skipping blacklisted peer: {}", multiaddr);
+                                        continue;
+                                    }
+                                }
+
+                                let pubkey_str = pubkey.to_string();
+                                if pubkey_str != local_pubkey.to_string() {
+                                    peers_map.insert(
+                                        pubkey_str,
+                                        PeerInfo {
+                                            pubkey,
+                                            multiaddr,
+                                            peer_id,
+                                            last_seen: now,
+                                        },
+                                    );
+                                }
+                            }
+
+                            let mut recent_peers: Vec<_> = peers_map
+                                .values()
+                                .filter(|peer| now - peer.last_seen < 1800)
+                                .collect();
+                            recent_peers.shuffle(&mut rand::rng());
+                            for peer in recent_peers.iter().take(8) {
+                                if !swarm.is_connected(&peer.peer_id) {
+                                    if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
+                                        warn!("Failed to dial peer {}: {}", peer.peer_id, e);
+                                    } else {
+                                        info!("Dialing peer {}", peer.peer_id);
+                                    }
+                                }
+                            }
+                        } else if let Ok(gossip_msg) =
                             serde_json::from_slice::<GossipMessage>(&message.data)
                         {
                             let computed_hash = format!("{:x}", Sha256::digest(&gossip_msg.data));
@@ -410,7 +777,6 @@ impl NetworkManager {
                                 continue;
                             }
 
-                            // Send message to channel
                             if let Err(e) = sender_clone.send(gossip_msg).await {
                                 error!("Failed to send gossip message to channel: {}", e);
                             } else {
@@ -426,7 +792,6 @@ impl NetworkManager {
                             warn!("Invalid message format from peer: {}", source);
                         }
 
-                        // Ban peers with low reputation
                         if peer_reputation_clone
                             .lock()
                             .await
@@ -475,8 +840,8 @@ impl NetworkManager {
                         };
 
                         if should_dial {
-                            if let Some(peer) = peers_clone.values().find(|p| p.peer_id == peer_id)
-                            {
+                            let peers_map = peers_clone.lock().await;
+                            if let Some(peer) = peers_map.values().find(|p| p.peer_id == peer_id) {
                                 let mut swarm = swarm_clone.lock().await;
                                 if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
                                     warn!("Failed to retry connection to {}: {}", peer_id, e);
@@ -509,8 +874,9 @@ impl NetworkManager {
                             };
 
                             if should_dial {
+                                let peers_map = peers_clone.lock().await;
                                 if let Some(peer) =
-                                    peers_clone.values().find(|p| p.peer_id == peer_id)
+                                    peers_map.values().find(|p| p.peer_id == peer_id)
                                 {
                                     let mut swarm = swarm_clone.lock().await;
                                     if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
@@ -529,14 +895,14 @@ impl NetworkManager {
 
         Ok(NetworkManager {
             swarm,
-            peers: peers_map,
+            peers,
             receiver,
             _sender,
             local_data: Arc::new(AsyncMutex::new(HashSet::new())),
             peer_reputation,
             message_rate,
             seen_messages,
-            ip_blacklist: Arc::new(AsyncMutex::new(ip_blacklist)),
+            ip_blacklist,
             connection_attempts,
         })
     }
@@ -547,9 +913,15 @@ impl NetworkManager {
         data: &[u8],
         origin_pubkey: Pubkey,
         upload_pda: &str,
+        format: &str,
     ) {
-        // Ensure only known peers are targeted
-        let valid_peers: Vec<PeerId> = self.peers.values().map(|peer| peer.peer_id).collect();
+        let valid_peers: Vec<PeerId> = self
+            .peers
+            .lock()
+            .await
+            .values()
+            .map(|peer| peer.peer_id)
+            .collect();
         if valid_peers.is_empty() {
             warn!("No valid peers to gossip data for key: {}", key);
             return;
@@ -564,6 +936,7 @@ impl NetworkManager {
         let message = GossipMessage {
             key: key.to_string(),
             data: data.to_vec(),
+            format: format.to_string(),
             origin_pubkey: origin_pubkey.to_string(),
             upload_pda: upload_pda.to_string(),
             timestamp,
@@ -585,14 +958,12 @@ impl NetworkManager {
             );
         }
 
-        // Log connection attempts for monitoring
         let connection_stats = self.connection_attempts.lock().await;
         info!("Current connection attempts: {:?}", *connection_stats);
     }
 
-    pub async fn receive_gossiped_data(&mut self, db: Arc<Database>) {
+    pub async fn receive_gossiped_data(&mut self, data_store: Arc<DataStore>) {
         while let Some(message) = self.receiver.recv().await {
-            // Check if data is already local to prevent overwriting
             if self.is_local(&message.key).await {
                 info!(
                     "Skipping gossiped data for key: {} (already local)",
@@ -601,9 +972,10 @@ impl NetworkManager {
                 continue;
             }
 
-            // Check peer reputation
             let source_peer_id = self
                 .peers
+                .lock()
+                .await
                 .get(&message.origin_pubkey)
                 .map(|peer| peer.peer_id);
             if let Some(peer_id) = source_peer_id {
@@ -617,24 +989,24 @@ impl NetworkManager {
                 continue;
             }
 
-            // Check IP blacklist
-            let is_blacklisted = if let Some(peer) = self.peers.get(&message.origin_pubkey) {
-                let ip = peer.multiaddr.iter().find_map(|p| match p {
-                    Protocol::Ip4(ip) => Some(ip),
-                    _ => None,
-                });
-                if let Some(ip) = ip {
-                    self.ip_blacklist
-                        .lock()
-                        .await
-                        .iter()
-                        .any(|net| net.contains(ip))
+            let is_blacklisted =
+                if let Some(peer) = self.peers.lock().await.get(&message.origin_pubkey) {
+                    let ip = peer.multiaddr.iter().find_map(|p| match p {
+                        Protocol::Ip4(ip) => Some(ip),
+                        _ => None,
+                    });
+                    if let Some(ip) = ip {
+                        self.ip_blacklist
+                            .lock()
+                            .await
+                            .iter()
+                            .any(|net| net.contains(ip))
+                    } else {
+                        false
+                    }
                 } else {
                     false
-                }
-            } else {
-                false
-            };
+                };
             if is_blacklisted {
                 warn!(
                     "Ignoring message from blacklisted peer: {}",
@@ -643,7 +1015,6 @@ impl NetworkManager {
                 continue;
             }
 
-            // Verify message hasn't been seen before
             let message_id = {
                 let mut hasher = Sha256::new();
                 hasher.update(&message.data);
@@ -656,14 +1027,28 @@ impl NetworkManager {
             }
             self.seen_messages.lock().await.insert(message_id);
 
-            // Store gossiped data in database
-            if let Err(e) = db.inner.put(message.key.as_bytes(), message.data) {
+            let origin_pubkey = Pubkey::from_str(&message.origin_pubkey)
+                .map_err(|e| {
+                    error!("Invalid origin_pubkey: {}", e);
+                    ApiError::NetworkError(anyhow::anyhow!("Invalid origin_pubkey: {}", e))
+                })
+                .unwrap();
+
+            if let Err(e) = data_store
+                .store_data(
+                    &message.key,
+                    &message.data,
+                    &message.format,
+                    origin_pubkey,
+                    &message.upload_pda,
+                )
+                .await
+            {
                 error!("Failed to store gossiped data: {}", e);
             } else {
                 info!("Stored gossiped data for key: {}", message.key);
             }
 
-            // Log message rate statistics
             if let Some(peer_id) = source_peer_id {
                 let message_rate = self.message_rate.lock().await;
                 if let Some((time, count)) = message_rate.get(&peer_id) {
@@ -674,10 +1059,6 @@ impl NetworkManager {
                 }
             }
         }
-    }
-
-    pub async fn mark_as_local(&mut self, key: &str) {
-        self.local_data.lock().await.insert(key.to_string());
     }
 
     pub async fn is_local(&self, key: &str) -> bool {

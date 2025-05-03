@@ -22,4 +22,7 @@ pub struct KeyValuePayload {
 
     #[validate(length(min = 1, message = "upload_pda cannot be empty"))]
     pub upload_pda: String,
+
+    #[validate(length(min = 1, message = "format cannot be empty"))]
+    pub format: String,
 }

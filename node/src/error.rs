@@ -20,6 +20,8 @@ pub enum ApiError {
     PaymentNotVerified,
     #[error("Network error: {0}")]
     NetworkError(#[from] anyhow::Error),
+    #[error("Internal error: {0}")]
+    InternalError(String), // Added for serialization/timestamp errors
 }
 
 // Implement From<solana_client::ClientError> for ApiError
@@ -46,6 +48,7 @@ impl ResponseError for ApiError {
             ApiError::InvalidHash => StatusCode::NOT_ACCEPTABLE,
             ApiError::NodeNotRegistered => StatusCode::PRECONDITION_FAILED,
             ApiError::PaymentNotVerified => StatusCode::PAYMENT_REQUIRED,
+            ApiError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

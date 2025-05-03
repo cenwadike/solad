@@ -11,14 +11,13 @@ use solana_sdk::signer::Signer;
 use std::env;
 use std::str::FromStr;
 
+use crate::data_store::DataStore;
 use crate::data_upload_event::{EventListenerConfig, EventMap, UploadEventConsumer};
-use crate::db::Database;
 use crate::error::{ApiError, ApiError::NotFound};
 use crate::libp2p::NetworkManager;
 use crate::models::{KeyQuery, KeyValuePayload};
 use crate::solad_client::{SoladClient, Upload};
 
-// Get value by key
 pub async fn get_value(
     db: web::Data<Arc<DB>>,
     query: web::Query<KeyQuery>,
@@ -31,23 +30,21 @@ pub async fn get_value(
     Ok(HttpResponse::Ok().body(value))
 }
 
-// Set key-value pair
 pub async fn set_value(
-    db: web::Data<Arc<Database>>,
+    data_store: web::Data<Arc<DataStore>>,
     event_map: web::Data<EventMap>,
     payload: web::Json<KeyValuePayload>,
     config: web::Data<EventListenerConfig>,
     network_manager: web::Data<Arc<AsyncMutex<NetworkManager>>>,
 ) -> Result<HttpResponse, ApiError> {
-    // Verify data hash
     let computed_hash = format!("{:x}", Sha256::digest(payload.data.clone()));
     if computed_hash != payload.hash {
         return Err(ApiError::InvalidHash);
     }
 
-    // Check local node registration status
     let registration_key = "node_registered";
-    let is_registered = db
+    let is_registered = data_store
+        .db
         .inner
         .get(registration_key.as_bytes())
         .map_err(|e| ApiError::Database(e))?
@@ -58,7 +55,6 @@ pub async fn set_value(
         return Err(ApiError::NodeNotRegistered);
     }
 
-    // Find matching event in map
     let upload_pda =
         Pubkey::from_str(&payload.upload_pda).map_err(|e| ApiError::NetworkError(e.into()))?;
 
@@ -72,7 +68,6 @@ pub async fn set_value(
         return Err(ApiError::InvalidHash);
     }
 
-    // Verify event (payment and node registration)
     let consumer =
         UploadEventConsumer::new(config.get_ref().clone(), event_map.get_ref().clone()).await;
 
@@ -81,47 +76,46 @@ pub async fn set_value(
         .await
         .map_err(|_| ApiError::PaymentNotVerified)?;
 
-    // Store data
-    db.inner
-        .put(payload.key.as_bytes(), payload.data.clone())
-        .map_err(ApiError::Database)?;
+    data_store
+        .store_data(
+            &payload.key,
+            &payload.data,
+            &payload.format,
+            config.node_pubkey,
+            &payload.upload_pda,
+        )
+        .await?;
 
-    // Mark data as local
-    {
-        let mut network_manager = network_manager.lock().await;
-        network_manager.mark_as_local(&payload.key).await;
-    }
+    data_store.mark_as_local(&payload.key).await;
 
-    // Gossip data to other nodes in the shard
     async_std::task::spawn({
         let network_manager = network_manager.clone();
         let key = payload.key.clone();
         let data = payload.data.clone();
+        let format = payload.format.clone();
         let origin_pubkey = config.node_pubkey;
         let upload_pda = payload.upload_pda.clone();
         async move {
             let mut network_manager = network_manager.lock().await;
             network_manager
-                .gossip_data(&key, &data, origin_pubkey, &upload_pda)
+                .gossip_data(&key, &data, origin_pubkey, &upload_pda, &format)
                 .await;
             info!("Gossiped data for key: {}", key);
         }
     });
 
-    // Initialize payer
-    let payer = Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
-        ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
-    })?);
+    let payer =
+        Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
+        })?);
     let payer = Arc::new(payer);
 
-    // Initialize Solad client
     let solad_client = SoladClient::new(&config.http_url, payer.clone(), config.program_id)
         .await
         .map_err(|e| {
             ApiError::NetworkError(anyhow::anyhow!("Failed to initialize SoladClient: {}", e))
         })?;
 
-    // Fetch the Upload account to determine shard ID
     let rpc_client = RpcClient::new(config.http_url.clone());
     let account_data = rpc_client
         .get_account_data(&upload_pda)
@@ -137,7 +131,6 @@ pub async fn set_value(
         ))
     })?;
 
-    // Find the shard where this node is included
     let node_pubkey = config.node_pubkey;
     let shard_id = upload_account
         .shards
@@ -145,7 +138,7 @@ pub async fn set_value(
         .enumerate()
         .find_map(|(index, shard)| {
             if shard.node_keys.contains(&node_pubkey) {
-                Some((index + 1) as u8) // Index 0 = shard 1, index 1 = shard 2, etc.
+                Some((index + 1) as u8)
             } else {
                 None
             }
@@ -161,7 +154,6 @@ pub async fn set_value(
     let (storage_config_pubkey, _storage_config_bump) =
         Pubkey::find_program_address(&[b"storage_config", payer.pubkey().as_ref()], &contract::ID);
 
-    // Claim rewards synchronously
     info!(
         "Initiating reward claim for node: {}, upload_pda: {}.",
         config.node_pubkey, payload.upload_pda
@@ -181,10 +173,7 @@ pub async fn set_value(
                 "Failed to claim reward for node: {}, upload_pda: {}, shard_id: {}: {}",
                 node_pubkey, upload_pda, shard_id, e
             );
-            ApiError::NetworkError(anyhow::anyhow!(
-                "Failed to claim reward: {}",
-                e
-            ))
+            ApiError::NetworkError(anyhow::anyhow!("Failed to claim reward: {}", e))
         })?;
 
     info!(
@@ -192,11 +181,9 @@ pub async fn set_value(
         node_pubkey, upload_pda, shard_id, signature
     );
 
-    // Respond to user
     Ok(HttpResponse::Ok().body("Data set successfully"))
 }
 
-// Delete key
 pub async fn delete_value(
     db: web::Data<Arc<DB>>,
     query: web::Query<KeyQuery>,
