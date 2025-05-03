@@ -1,11 +1,10 @@
+mod data_upload_event;
 mod db;
 mod error;
 mod handlers;
-mod models;
-// mod utils;
-// mod anchor;
-mod data_upload_event;
 mod libp2p;
+mod models;
+mod solad_client;
 
 use std::str::FromStr;
 
@@ -23,7 +22,10 @@ use libp2p::NetworkManager;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 
-async fn setup_network_manager(config: &EventListenerConfig) -> Arc<AsyncMutex<NetworkManager>> {
+async fn setup_network_manager(
+    config: &EventListenerConfig,
+    db: Arc<Database>,
+) -> Arc<AsyncMutex<NetworkManager>> {
     // Initialize Solana RPC client
     let rpc_client = RpcClient::new(config.http_url.clone());
 
@@ -41,9 +43,16 @@ async fn setup_network_manager(config: &EventListenerConfig) -> Arc<AsyncMutex<N
     ];
 
     // Initialize NetworkManager
-    let network_manager = NetworkManager::new(local_key, peers, config.node_pubkey, &rpc_client)
-        .await
-        .expect("Failed to initialize NetworkManager");
+    let network_manager = NetworkManager::new(
+        local_key,
+        peers,
+        config.node_pubkey,
+        &rpc_client,
+        db.clone(),
+        config.program_id,
+    )
+    .await
+    .expect("Failed to initialize NetworkManager");
     let network_manager_arc = Arc::new(AsyncMutex::new(network_manager));
 
     // Start the receive_gossiped_data task
@@ -72,7 +81,7 @@ async fn main() -> std::io::Result<()> {
         ws_url: "ws://api.mainnet-beta.solana.com".to_string(),
         http_url: "https://api.mainnet-beta.solana.com".to_string(),
         program_id: contract::ID,
-        node_pubkey: Pubkey::from_str("YourNodePubkeyHere").unwrap(),
+        node_pubkey: Pubkey::from_str("11111111111111111111111111111111").unwrap(),
         commitment: CommitmentConfig::confirmed(),
     };
 
@@ -93,7 +102,7 @@ async fn main() -> std::io::Result<()> {
     });
 
     // Initialize NetworkManager
-    let network_manager = setup_network_manager(&config).await;
+    let network_manager = setup_network_manager(&config, db.clone()).await;
 
     // Start HTTP server
     HttpServer::new(move || {

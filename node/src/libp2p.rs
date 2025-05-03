@@ -25,6 +25,9 @@ use tokio::sync::mpsc;
 
 use crate::db::Database;
 use crate::error::ApiError;
+use crate::solad_client::SoladClient;
+use solana_sdk::signature::Keypair;
+use std::env;
 
 // Structure to hold peer information
 #[derive(Clone)]
@@ -72,14 +75,15 @@ impl NetworkManager {
         peers: Vec<PeerInfo>,
         local_pubkey: Pubkey,
         rpc_client: &RpcClient,
+        db: Arc<Database>,  // Added to store registration status
+        program_id: Pubkey, // Added to pass program ID for SoladClient
     ) -> Result<Self, ApiError> {
         let local_peer_id = PeerId::from(local_key.public());
 
         // Verify that local_pubkey corresponds to local_key (enhances security)
-        let account = rpc_client
-            .get_account(&local_pubkey)
-            .await
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Failed to fetch local account: {}", e)))?;
+        let account = rpc_client.get_account(&local_pubkey).await.map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("Failed to fetch local account: {}", e))
+        })?;
         if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
             return Err(ApiError::NetworkError(anyhow::anyhow!(
                 "Local pubkey {} is not a valid node account",
@@ -87,6 +91,75 @@ impl NetworkManager {
             )));
         }
         info!("Verified local node pubkey: {}", local_pubkey);
+
+        // Load payer keypair from environment variable
+        let payer =
+            Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
+            })?);
+
+        // Initialize Solad client
+        let solad_client = SoladClient::new(&rpc_client.url(), Arc::new(payer), program_id)
+            .await
+            .map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!("Failed to initialize SoladClient: {}", e))
+            })?;
+
+        // Derive node PDA
+        let (node_pda, _node_bump) =
+            Pubkey::find_program_address(&[b"node", local_pubkey.as_ref()], &program_id);
+
+        // Check local registration status
+        let registration_key = "node_registered";
+        let is_registered = db
+            .inner
+            .get(registration_key.as_bytes())
+            .map_err(|e| ApiError::Database(e))?
+            .map(|val| val == b"true")
+            .unwrap_or(false);
+
+        if !is_registered {
+            // Check if node account exists on blockchain
+            let node_exists = rpc_client.get_account(&node_pda).await.is_ok();
+            if !node_exists {
+                info!("Node account does not exist, registering node with stake...");
+                // Register node with a minimum stake (e.g., 1 SOL = 1_000_000_000 lamports)
+                // Assuming storage_config_pubkey is provided externally (e.g., via config in main.rs)
+                let storage_config_pubkey = Pubkey::from_str("YourStorageConfigPubkeyHere")
+                    .map_err(|e| {
+                        ApiError::NetworkError(anyhow::anyhow!(
+                            "Invalid storage config pubkey: {}",
+                            e
+                        ))
+                    })?;
+                solad_client
+                    .register_node(1_000_000_000, storage_config_pubkey)
+                    .await
+                    .map_err(|e| {
+                        ApiError::NetworkError(anyhow::anyhow!("Failed to register node: {}", e))
+                    })?;
+                info!("Node registered successfully at PDA: {}", node_pda);
+
+                // Store registration status locally
+                db.inner
+                    .put(registration_key.as_bytes(), b"true")
+                    .map_err(|e| ApiError::Database(e))?;
+            } else {
+                // Node exists on blockchain but not locally marked, update local status
+                db.inner
+                    .put(registration_key.as_bytes(), b"true")
+                    .map_err(|e| ApiError::Database(e))?;
+                info!(
+                    "Node already registered at PDA: {}, updated local status",
+                    node_pda
+                );
+            }
+        } else {
+            info!(
+                "Node registration status confirmed locally for PDA: {}",
+                node_pda
+            );
+        }
 
         let (_sender, receiver) = mpsc::channel(100);
 
@@ -144,9 +217,12 @@ impl NetworkManager {
         // Wrap swarm in Arc<AsyncMutex<...>>
         let swarm = Arc::new(AsyncMutex::new(swarm));
 
-        let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0"
-            .parse()
-            .map_err(|e: multiaddr::Error| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+        let listen_addr: Multiaddr =
+            "/ip4/0.0.0.0/tcp/0"
+                .parse()
+                .map_err(|e: multiaddr::Error| {
+                    ApiError::NetworkError(anyhow::anyhow!(e.to_string()))
+                })?;
         swarm
             .lock()
             .await
@@ -160,8 +236,8 @@ impl NetworkManager {
             16,
         )
         .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Invalid netmask: {}", e)))?]
-            .into_iter()
-            .collect();
+        .into_iter()
+        .collect();
 
         let mut peers_map = HashMap::new();
         for peer in peers {
@@ -194,9 +270,12 @@ impl NetworkManager {
             )));
         }
 
-        let bootstrap_addr: Multiaddr = "/ip4/127.0.0.1/tcp/4000"
-            .parse()
-            .map_err(|e: multiaddr::Error| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+        let bootstrap_addr: Multiaddr =
+            "/ip4/127.0.0.1/tcp/4000"
+                .parse()
+                .map_err(|e: multiaddr::Error| {
+                    ApiError::NetworkError(anyhow::anyhow!(e.to_string()))
+                })?;
         swarm
             .lock()
             .await
@@ -470,11 +549,7 @@ impl NetworkManager {
         upload_pda: &str,
     ) {
         // Ensure only known peers are targeted
-        let valid_peers: Vec<PeerId> = self
-            .peers
-            .values()
-            .map(|peer| peer.peer_id)
-            .collect();
+        let valid_peers: Vec<PeerId> = self.peers.values().map(|peer| peer.peer_id).collect();
         if valid_peers.is_empty() {
             warn!("No valid peers to gossip data for key: {}", key);
             return;
@@ -503,7 +578,11 @@ impl NetworkManager {
         {
             error!("Failed to publish gossip message: {}", e);
         } else {
-            info!("Published gossip message for key: {} to {} peers", key, valid_peers.len());
+            info!(
+                "Published gossip message for key: {} to {} peers",
+                key,
+                valid_peers.len()
+            );
         }
 
         // Log connection attempts for monitoring
@@ -515,7 +594,10 @@ impl NetworkManager {
         while let Some(message) = self.receiver.recv().await {
             // Check if data is already local to prevent overwriting
             if self.is_local(&message.key).await {
-                info!("Skipping gossiped data for key: {} (already local)", message.key);
+                info!(
+                    "Skipping gossiped data for key: {} (already local)",
+                    message.key
+                );
                 continue;
             }
 
@@ -542,7 +624,11 @@ impl NetworkManager {
                     _ => None,
                 });
                 if let Some(ip) = ip {
-                    self.ip_blacklist.lock().await.iter().any(|net| net.contains(ip))
+                    self.ip_blacklist
+                        .lock()
+                        .await
+                        .iter()
+                        .any(|net| net.contains(ip))
                 } else {
                     false
                 }
@@ -550,7 +636,10 @@ impl NetworkManager {
                 false
             };
             if is_blacklisted {
-                warn!("Ignoring message from blacklisted peer: {}", message.origin_pubkey);
+                warn!(
+                    "Ignoring message from blacklisted peer: {}",
+                    message.origin_pubkey
+                );
                 continue;
             }
 
@@ -578,7 +667,10 @@ impl NetworkManager {
             if let Some(peer_id) = source_peer_id {
                 let message_rate = self.message_rate.lock().await;
                 if let Some((time, count)) = message_rate.get(&peer_id) {
-                    info!("Peer {} message rate: {} messages at time {}", peer_id, count, time);
+                    info!(
+                        "Peer {} message rate: {} messages at time {}",
+                        peer_id, count, time
+                    );
                 }
             }
         }
