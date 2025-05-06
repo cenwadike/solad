@@ -1,112 +1,133 @@
+// This module implements a robust NetworkManager for a decentralized storage network.
+// It uses libp2p for peer-to-peer communication with
+// gossipsub for data propagation. The manager handles peer discovery, message validation,
+// reputation tracking, and data gossiping, ensuring secure and efficient network operations.
+
+// Dependencies for async operations, networking, serialization, and cryptography
 use async_std::sync::{Arc, Mutex as AsyncMutex};
 use async_std::task;
 use futures::StreamExt;
 use ip_network::IpNetwork;
-use libp2p::multiaddr;
-use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{
     core::upgrade,
     gossipsub::{self, GossipsubEvent, MessageAuthenticity, MessageId, ValidationMode},
     identity,
-    multiaddr::Protocol,
-    noise, tcp, yamux, Multiaddr, NetworkBehaviour, PeerId, Swarm, Transport,
+    multiaddr::{Multiaddr, Protocol},
+    noise,
+    swarm::{SwarmBuilder, SwarmEvent},
+    tcp, yamux, NetworkBehaviour, PeerId, Swarm, Transport,
 };
 use log::{error, info, warn};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signature},
+};
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
+// Local crate dependencies
 use crate::data_store::DataStore;
 use crate::db::Database;
 use crate::error::ApiError;
 use crate::solad_client::SoladClient;
-use solana_sdk::signature::Keypair;
-use std::env;
 
-// Structure to hold peer information
+// Structure to hold peer information with public key, address, and activity tracking
 #[derive(Clone)]
 pub struct PeerInfo {
-    pub pubkey: Pubkey,
-    pub multiaddr: Multiaddr,
-    pub peer_id: PeerId,
-    pub last_seen: u64, // Timestamp of last activity
+    pub pubkey: Pubkey,       // Solana public key of the peer
+    pub multiaddr: Multiaddr, // Multiaddress for connecting to the peer
+    pub peer_id: PeerId,      // Libp2p PeerId for identification
+    pub last_seen: u64,       // Timestamp of last peer activity
 }
 
-// Message structure for gossip
+// Message structure for gossiping data across the network
 #[derive(Serialize, Deserialize, Clone)]
 struct GossipMessage {
-    key: String,
-    data: Vec<u8>,
-    format: String,
-    origin_pubkey: String,
-    upload_pda: String,
-    timestamp: u64, // For replay protection
-    hash: String,   // Data hash for integrity
+    key: String,           // Unique identifier for the data
+    data: Vec<u8>,         // Actual data payload
+    format: String,        // Data format (e.g., JSON, binary)
+    origin_pubkey: String, // Public key of the data originator
+    upload_pda: String,    // Program-derived address for upload tracking
+    timestamp: u64,        // Timestamp for replay protection
+    hash: String,          // SHA-256 hash of data for integrity
 }
 
-// Custom network behaviour combining gossipsub
+// Message structure for peer discovery
+#[derive(Clone, Serialize, Deserialize)]
+struct PeerDiscoveryMessage {
+    peers: Vec<(Pubkey, Multiaddr, String)>, // List of peers with pubkey, address, and PeerId
+    timestamp: u64,                          // Timestamp for message freshness
+    signature: Vec<u8>,                      // Signature for authenticity
+}
+
+// Custom network behaviour combining gossipsub for message propagation
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "gossipsub::GossipsubEvent")]
-struct SoladBehaviour {
-    gossipsub: gossipsub::Gossipsub,
+struct NetworkBehaviour {
+    gossipsub: gossipsub::Gossipsub, // Gossipsub protocol for pub-sub messaging
 }
 
-// Structure to manage libp2p swarm
+// Main NetworkManager structure to manage the libp2p swarm and network state
 pub struct NetworkManager {
-    swarm: Arc<AsyncMutex<Swarm<SoladBehaviour>>>,
-    peers: Arc<AsyncMutex<HashMap<String, PeerInfo>>>,
-    receiver: mpsc::Receiver<GossipMessage>,
-    _sender: mpsc::Sender<GossipMessage>,
-    local_data: Arc<AsyncMutex<HashSet<String>>>,
-    peer_reputation: Arc<AsyncMutex<HashMap<PeerId, i32>>>,
-    message_rate: Arc<AsyncMutex<HashMap<PeerId, (u64, u32)>>>,
-    seen_messages: Arc<AsyncMutex<HashSet<MessageId>>>,
-    ip_blacklist: Arc<AsyncMutex<HashSet<IpNetwork>>>,
-    connection_attempts: Arc<AsyncMutex<HashMap<PeerId, (u64, u32)>>>,
+    swarm: Arc<AsyncMutex<Swarm<NetworkBehaviour>>>, // Libp2p swarm for networking
+    peers: Arc<AsyncMutex<HashMap<String, PeerInfo>>>, // Map of peers by pubkey
+    receiver: mpsc::Receiver<GossipMessage>,         // Channel for receiving gossip messages
+    _sender: mpsc::Sender<GossipMessage>,            // Channel for sending gossip messages
+    local_data: Arc<AsyncMutex<HashSet<String>>>,    // Set of locally stored data keys
+    peer_reputation: Arc<AsyncMutex<HashMap<PeerId, i32>>>, // Peer reputation scores
+    _message_rate: Arc<AsyncMutex<HashMap<PeerId, (u64, u32)>>>, // Message rate tracking
+    seen_messages: Arc<AsyncMutex<HashSet<MessageId>>>, // Set of seen message IDs
+    ip_blacklist: Arc<AsyncMutex<HashSet<IpNetwork>>>, // Blacklisted IP networks
+    connection_attempts: Arc<AsyncMutex<HashMap<PeerId, (u64, u32)>>>, // Connection attempt tracking
 }
 
 impl NetworkManager {
+    // Initializes a new NetworkManager with the provided configuration
+    // Verifies local node registration, sets up libp2p swarm, and starts background tasks
     pub async fn new(
-        local_key: identity::Keypair,
-        peers: Vec<PeerInfo>,
-        local_pubkey: Pubkey,
-        rpc_client: Arc<RpcClient>,
-        db: Arc<Database>,
-        program_id: Pubkey,
+        local_key: identity::Keypair, // Libp2p keypair for authentication
+        peers: Vec<PeerInfo>,         // Initial list of peers
+        local_pubkey: Pubkey,         // Local node's Solana public key
+        rpc_client: Arc<RpcClient>,   // Solana RPC client for blockchain interactions
+        db: Arc<Database>,            // Database for persistent storage
+        program_id: Pubkey,           // Solana program ID
     ) -> Result<Self, ApiError> {
+        // Derive local PeerId from keypair
         let local_peer_id = PeerId::from(local_key.public());
+        info!("Initializing NetworkManager for peer: {}", local_peer_id);
 
-        // Verify that local_pubkey corresponds to local_key
-        let _ = rpc_client.get_account(&local_pubkey).await.map_err(|e| {
+        // Verify local node account exists on Solana
+        rpc_client.get_account(&local_pubkey).await.map_err(|e| {
             ApiError::NetworkError(anyhow::anyhow!("Failed to fetch local account: {}", e))
         })?;
         info!("Verified local node pubkey: {}", local_pubkey);
 
-        // Load payer keypair from environment variable
+        // Load Solana payer keypair from environment
         let payer =
             Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
                 ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
             })?);
 
-        // Initialize Solad client
+        // Initialize Solad client for program interactions
         let solad_client = SoladClient::new(&rpc_client.url(), Arc::new(payer), program_id)
             .await
             .map_err(|e| {
                 ApiError::NetworkError(anyhow::anyhow!("Failed to initialize SoladClient: {}", e))
             })?;
 
-        // Derive node PDA
-        let (node_pda, _node_bump) =
+        // Derive node PDA for registration
+        let (node_pda, _bump) =
             Pubkey::find_program_address(&[b"node", local_pubkey.as_ref()], &program_id);
 
-        // Check local registration status
+        // Check and handle node registration
         let registration_key = "node_registered";
         let is_registered = db
             .inner
@@ -118,7 +139,8 @@ impl NetworkManager {
         if !is_registered {
             let node_exists = rpc_client.get_account(&node_pda).await.is_ok();
             if !node_exists {
-                info!("Node account does not exist, registering node with stake...");
+                info!("Registering node with stake at PDA: {}", node_pda);
+                // TODO: Replace with actual storage config pubkey
                 let storage_config_pubkey = Pubkey::from_str("YourStorageConfigPubkeyHere")
                     .map_err(|e| {
                         ApiError::NetworkError(anyhow::anyhow!(
@@ -132,63 +154,61 @@ impl NetworkManager {
                     .map_err(|e| {
                         ApiError::NetworkError(anyhow::anyhow!("Failed to register node: {}", e))
                     })?;
-                info!("Node registered successfully at PDA: {}", node_pda);
-
                 db.inner
                     .put(registration_key.as_bytes(), b"true")
                     .map_err(|e| ApiError::Database(e))?;
+                info!("Node registered successfully");
             } else {
                 db.inner
                     .put(registration_key.as_bytes(), b"true")
                     .map_err(|e| ApiError::Database(e))?;
-                info!(
-                    "Node already registered at PDA: {}, updated local status",
-                    node_pda
-                );
+                info!("Node already registered, updated local status");
             }
         } else {
-            info!(
-                "Node registration status confirmed locally for PDA: {}",
-                node_pda
-            );
+            info!("Node registration confirmed for PDA: {}", node_pda);
         }
 
-        let (_sender, receiver) = mpsc::channel(100);
-
+        // Set up gossipsub configuration
         let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
-            .heartbeat_interval(Duration::from_secs(10))
-            .validation_mode(ValidationMode::Strict)
+            .heartbeat_interval(Duration::from_secs(10)) // Heartbeat every 10 seconds
+            .validation_mode(ValidationMode::Strict) // Strict message validation
             .message_id_fn(|msg| {
+                // Custom message ID function
                 let mut hasher = Sha256::new();
                 hasher.update(&msg.data);
                 hasher.update(msg.sequence_number.unwrap_or(0).to_be_bytes());
                 MessageId::from(hasher.finalize().to_vec())
             })
-            .max_transmit_size(64 * 1024)
-            .flood_publish(false)
-            .mesh_n(6)
-            .mesh_n_low(4)
-            .mesh_n_high(8)
-            .history_length(300)
+            .max_transmit_size(64 * 1024) // Max message size: 64KB
+            .flood_publish(false) // Disable flood publishing
+            .mesh_n(6) // Ideal mesh size
+            .mesh_n_low(4) // Minimum mesh size
+            .mesh_n_high(8) // Maximum mesh size
+            .history_length(300) // Keep 300 messages in history
             .build()
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+            .map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!("Gossipsub config error: {}", e))
+            })?;
 
+        // Initialize gossipsub with signed messages
         let mut gossipsub = gossipsub::Gossipsub::new(
             MessageAuthenticity::Signed(local_key.clone()),
             gossipsub_config,
         )
-        .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+        .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Gossipsub init error: {}", e)))?;
 
-        let data_topic = gossipsub::IdentTopic::new("solad-shard");
+        // Subscribe to shard and discovery topics
+        let data_topic = gossipsub::IdentTopic::new("network-shard");
         gossipsub
             .subscribe(&data_topic)
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Subscribe shard error: {}", e)))?;
 
-        let discovery_topic = gossipsub::IdentTopic::new("solad-discovery");
-        gossipsub
-            .subscribe(&discovery_topic)
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+        let discovery_topic = gossipsub::IdentTopic::new("network-discovery");
+        gossipsub.subscribe(&discovery_topic).map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("Subscribe discovery error: {}", e))
+        })?;
 
+        // Set up TCP transport with noise authentication and yamux multiplexing
         let transport = tcp::TcpTransport::new(tcp::GenTcpConfig::default())
             .upgrade(upgrade::Version::V1)
             .authenticate(
@@ -199,7 +219,8 @@ impl NetworkManager {
             .timeout(Duration::from_secs(20))
             .boxed();
 
-        let behaviour = SoladBehaviour { gossipsub };
+        // Initialize swarm with connection limits
+        let behaviour = NetworkBehaviour { gossipsub };
         let swarm = SwarmBuilder::new(transport, behaviour, local_peer_id)
             .connection_limits(
                 libp2p::swarm::ConnectionLimits::default()
@@ -209,21 +230,19 @@ impl NetworkManager {
                     .with_max_established_outgoing(Some(100)),
             )
             .build();
-
         let swarm = Arc::new(AsyncMutex::new(swarm));
 
-        let listen_addr: Multiaddr =
-            "/ip4/0.0.0.0/tcp/0"
-                .parse()
-                .map_err(|e: multiaddr::Error| {
-                    ApiError::NetworkError(anyhow::anyhow!(e.to_string()))
-                })?;
+        // Start listening on all interfaces
+        let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("Invalid listen address: {}", e))
+        })?;
         swarm
             .lock()
             .await
             .listen_on(listen_addr)
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Listen error: {}", e)))?;
 
+        // Initialize IP blacklist
         let ip_blacklist: HashSet<IpNetwork> = vec![IpNetwork::new(
             "192.168.0.0"
                 .parse::<Ipv4Addr>()
@@ -233,174 +252,17 @@ impl NetworkManager {
         .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Invalid netmask: {}", e)))?]
         .into_iter()
         .collect();
+        let ip_blacklist = Arc::new(AsyncMutex::new(ip_blacklist));
 
-        #[derive(Clone, Serialize, Deserialize)]
-        struct Node {
-            owner: Pubkey,
-            stake_amount: u64,
-            upload_count: u64,
-            last_pos_time: i64,
-            last_claimed_epoch: u64,
-            is_active: bool,
-        }
-
-        #[derive(Clone, Serialize, Deserialize)]
-        struct PeerDiscoveryMessage {
-            peers: Vec<(Pubkey, Multiaddr, String)>,
-            timestamp: u64,
-            signature: Vec<u8>,
-        }
-
-        async fn validate_active_peers(
-            rpc_client: Arc<RpcClient>,
-            program_id: &Pubkey,
-            peers: Vec<PeerInfo>,
-            ip_blacklist: &HashSet<IpNetwork>,
-        ) -> Result<Vec<PeerInfo>, ApiError> {
-            let (registry_pda, _bump) =
-                Pubkey::find_program_address(&[b"node_registry"], program_id);
-            let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
-                ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
-            })?;
-            let node_registry: Vec<Pubkey> = serde_json::from_slice(&registry_account.data)
-                .map_err(|e| {
-                    ApiError::NetworkError(anyhow::anyhow!(
-                        "Failed to deserialize node registry: {}",
-                        e
-                    ))
-                })?;
-
-            let node_pdas: Vec<Pubkey> = node_registry
-                .iter()
-                .map(|pubkey| {
-                    Pubkey::find_program_address(&[b"node", pubkey.as_ref()], program_id).0
-                })
-                .collect();
-
-            let node_accounts =
-                rpc_client
-                    .get_multiple_accounts(&node_pdas)
-                    .await
-                    .map_err(|e| {
-                        ApiError::NetworkError(anyhow::anyhow!(
-                            "Failed to fetch node accounts: {}",
-                            e
-                        ))
-                    })?;
-
-            let mut active_nodes = HashSet::new();
-            for (pubkey, account_opt) in node_registry.iter().zip(node_accounts.iter()) {
-                if let Some(account) = account_opt {
-                    if let Ok(node_data) = serde_json::from_slice::<Node>(&account.data) {
-                        if node_data.is_active {
-                            active_nodes.insert(*pubkey);
-                        }
-                    }
-                }
-            }
-
-            let mut valid_peers = Vec::new();
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-
-            for mut peer in peers {
-                if !active_nodes.contains(&peer.pubkey) {
-                    warn!("Peer {} is not registered or not active", peer.pubkey);
-                    continue;
-                }
-
-                let ip = peer.multiaddr.iter().find_map(|p| match p {
-                    Protocol::Ip4(ip) => Some(ip),
-                    _ => None,
-                });
-                if let Some(ip) = ip {
-                    if ip_blacklist.iter().any(|net| net.contains(ip)) {
-                        warn!("Skipping blacklisted peer: {}", peer.multiaddr);
-                        continue;
-                    }
-                }
-
-                let account = rpc_client
-                    .get_account(&peer.pubkey)
-                    .await
-                    .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
-                if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
-                    warn!("Skipping invalid peer: {}", peer.pubkey);
-                    continue;
-                }
-
-                peer.last_seen = now;
-                valid_peers.push(peer);
-            }
-
-            Ok(valid_peers)
-        }
-
-        fn compute_message_hash(peers: &[(Pubkey, Multiaddr, String)], timestamp: u64) -> Vec<u8> {
-            let mut hasher = Sha256::new();
-            for (pubkey, multiaddr, peer_id) in peers {
-                hasher.update(pubkey.to_bytes());
-                hasher.update(multiaddr.to_string().as_bytes());
-                hasher.update(peer_id.as_bytes());
-            }
-            hasher.update(timestamp.to_be_bytes());
-            hasher.finalize().to_vec()
-        }
-
-        async fn verify_discovery_message(
-            message: &PeerDiscoveryMessage,
-            rpc_client: Arc<RpcClient>,
-            program_id: &Pubkey,
-        ) -> Result<Pubkey, ApiError> {
-            let (registry_pda, _bump) =
-                Pubkey::find_program_address(&[b"node_registry"], program_id);
-            let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
-                ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
-            })?;
-            let node_registry: Vec<Pubkey> = serde_json::from_slice(&registry_account.data)
-                .map_err(|e| {
-                    ApiError::NetworkError(anyhow::anyhow!(
-                        "Failed to deserialize node registry: {}",
-                        e
-                    ))
-                })?;
-
-            let hash = compute_message_hash(&message.peers, message.timestamp);
-            if message.signature.len() != 64 {
-                return Err(ApiError::NetworkError(anyhow::anyhow!(
-                    "Invalid signature length: expected 64 bytes, got {}",
-                    message.signature.len()
-                )));
-            }
-            let mut signature_bytes = [0u8; 64];
-            signature_bytes.copy_from_slice(&message.signature);
-            let signature = solana_sdk::signature::Signature::from(signature_bytes);
-            for pubkey in node_registry {
-                if signature.verify(&pubkey.to_bytes(), &hash) {
-                    return Ok(pubkey);
-                }
-            }
-            Err(ApiError::NetworkError(anyhow::anyhow!(
-                "No valid signature found for discovery message"
-            )))
-        }
-
-        // Initialize peers HashMap with provided peers
+        // Initialize peers map
         let mut peers_map = HashMap::new();
         for peer in peers {
-            let pubkey_str = peer.pubkey.to_string();
-            peers_map.insert(pubkey_str, peer);
+            peers_map.insert(peer.pubkey.to_string(), peer);
         }
         let peers = Arc::new(AsyncMutex::new(peers_map));
-        let ip_blacklist = Arc::new(AsyncMutex::new(ip_blacklist));
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
 
-        let valid_peers = validate_active_peers(
+        // Validate initial peers
+        let valid_peers = Self::validate_active_peers(
             rpc_client.clone(),
             &program_id,
             peers.lock().await.values().cloned().collect(),
@@ -410,38 +272,39 @@ impl NetworkManager {
         {
             let mut peers_map = peers.lock().await;
             for peer in valid_peers {
-                let pubkey_str = peer.pubkey.to_string();
-                peers_map.insert(pubkey_str, peer);
+                peers_map.insert(peer.pubkey.to_string(), peer);
             }
         }
 
-        let bootstrap_addr: Multiaddr =
-            "/ip4/127.0.0.1/tcp/4000"
-                .parse()
-                .map_err(|e: multiaddr::Error| {
-                    ApiError::NetworkError(anyhow::anyhow!(e.to_string()))
-                })?;
+        // Dial bootstrap node
+        let bootstrap_addr: Multiaddr = "/ip4/127.0.0.1/tcp/4000".parse().map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("Invalid bootstrap address: {}", e))
+        })?;
         swarm
             .lock()
             .await
             .dial(bootstrap_addr.clone())
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Dial bootstrap error: {}", e)))?;
 
+        // Initialize state tracking
+        let (_sender, receiver) = mpsc::channel(100);
         let peer_reputation = Arc::new(AsyncMutex::new(HashMap::new()));
         let message_rate = Arc::new(AsyncMutex::new(HashMap::new()));
         let seen_messages = Arc::new(AsyncMutex::new(HashSet::new()));
         let connection_attempts = Arc::new(AsyncMutex::new(HashMap::new()));
-        let last_discovery = Arc::new(AsyncMutex::new(now));
+        let last_discovery = Arc::new(AsyncMutex::new(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        ));
 
+        // Spawn peer discovery task
         let swarm_clone = Arc::clone(&swarm);
         let peers_clone = Arc::clone(&peers);
         let peer_reputation_clone = Arc::clone(&peer_reputation);
-        let message_rate_clone = Arc::clone(&message_rate);
         let seen_messages_clone = Arc::clone(&seen_messages);
-        let connection_attempts_clone = Arc::clone(&connection_attempts);
         let ip_blacklist_clone = Arc::clone(&ip_blacklist);
-        let sender_clone = _sender.clone();
-        let local_key_clone = local_key.clone();
         let last_discovery_clone = Arc::clone(&last_discovery);
         let rpc_client_clone = Arc::clone(&rpc_client);
 
@@ -458,7 +321,8 @@ impl NetworkManager {
                 };
 
                 if should_discover {
-                    let new_peers = match validate_active_peers(
+                    // Fetch and validate new peers
+                    let new_peers = match Self::validate_active_peers(
                         Arc::clone(&rpc_client_clone),
                         &program_id,
                         vec![],
@@ -468,7 +332,7 @@ impl NetworkManager {
                     {
                         Ok(peers) => peers,
                         Err(e) => {
-                            warn!("Failed to fetch peers from NodeRegistry: {}", e);
+                            warn!("Failed to fetch peers: {}", e);
                             vec![]
                         }
                     };
@@ -476,15 +340,16 @@ impl NetworkManager {
                     let mut peers_map = peers_clone.lock().await;
                     let mut swarm = swarm_clone.lock().await;
 
+                    // Update peer list
                     for peer in new_peers {
                         let pubkey_str = peer.pubkey.to_string();
                         if pubkey_str != local_pubkey.to_string() {
                             peers_map.insert(pubkey_str, peer);
                         }
                     }
-
                     peers_map.retain(|_, peer| now - peer.last_seen < 3600);
 
+                    // Prepare discovery message
                     let recent_peers: Vec<(Pubkey, Multiaddr, String)> = peers_map
                         .values()
                         .filter(|peer| now - peer.last_seen < 1800)
@@ -498,20 +363,21 @@ impl NetworkManager {
                         .collect();
 
                     let timestamp = now;
-                    let hash = compute_message_hash(&recent_peers, timestamp);
-                    let signature = match local_key_clone.sign(&hash) {
-                        Ok(sig) => sig,
-                        Err(e) => {
+                    let hash = Self::compute_message_hash(&recent_peers, timestamp);
+                    let signature = local_key
+                        .sign(&hash)
+                        .map_err(|e| {
                             warn!("Failed to sign discovery message: {}", e);
-                            continue;
-                        }
-                    };
+                            Vec::<u8>::new() // Explicitly specify Vec<u8>
+                        })
+                        .unwrap_or_default();
                     let discovery_message = PeerDiscoveryMessage {
                         peers: recent_peers,
                         timestamp,
                         signature: signature.to_vec(),
                     };
 
+                    // Publish discovery message
                     let message_bytes = serde_json::to_vec(&discovery_message)
                         .expect("Serialize discovery message");
                     if let Err(e) = swarm
@@ -527,44 +393,24 @@ impl NetworkManager {
                         );
                     }
 
-                    // Log the number of seen messages to monitor message history
+                    // Log seen messages count
                     let seen_messages_count = seen_messages_clone.lock().await.len();
-                    info!("Current number of seen messages: {}", seen_messages_count);
+                    info!("Current seen messages: {}", seen_messages_count);
 
+                    // Dial recent peers
                     let mut recent_peers: Vec<_> = peers_map
                         .values()
                         .filter(|peer| now - peer.last_seen < 1800)
                         .collect();
                     recent_peers.shuffle(&mut rand::rng());
                     for peer in recent_peers.iter().take(8) {
-                        // Check peer reputation before dialing
                         let reputation = peer_reputation_clone.lock().await;
                         if reputation
                             .get(&peer.peer_id)
                             .map_or(false, |&rep| rep < -20)
                         {
-                            warn!("Skipping peer {} due to low reputation", peer.peer_id);
+                            warn!("Skipping low-reputation peer: {}", peer.peer_id);
                             continue;
-                        }
-
-                        // Log message rate for the peer
-                        let message_rate = message_rate_clone.lock().await;
-                        if let Some((time, count)) = message_rate.get(&peer.peer_id) {
-                            info!(
-                                "Peer {} message rate: {} messages at time {}",
-                                peer.peer_id, count, time
-                            );
-                        }
-
-                        // Log connection attempts for the peer
-                        let connection_attempts = connection_attempts_clone.lock().await;
-                        if let Some((last_attempt, attempts)) =
-                            connection_attempts.get(&peer.peer_id)
-                        {
-                            info!(
-                                "Peer {} has {} connection attempts, last at {}",
-                                peer.peer_id, attempts, last_attempt
-                            );
                         }
 
                         if !swarm.is_connected(&peer.peer_id) {
@@ -581,7 +427,7 @@ impl NetworkManager {
             }
         });
 
-        // Second task with new Arc clones
+        // Spawn event handling task
         let swarm_clone = Arc::clone(&swarm);
         let peers_clone = Arc::clone(&peers);
         let peer_reputation_clone = Arc::clone(&peer_reputation);
@@ -590,6 +436,7 @@ impl NetworkManager {
         let connection_attempts_clone = Arc::clone(&connection_attempts);
         let ip_blacklist_clone = Arc::clone(&ip_blacklist);
         let rpc_client_clone = Arc::clone(&rpc_client);
+        let _sender_clone = Arc::new(_sender.clone());
 
         task::spawn(async move {
             loop {
@@ -610,6 +457,7 @@ impl NetworkManager {
                             .unwrap()
                             .as_secs();
 
+                        // Rate limiting
                         {
                             let mut message_rate = message_rate_clone.lock().await;
                             let (last_time, count) = message_rate.entry(source).or_insert((now, 0));
@@ -631,6 +479,7 @@ impl NetworkManager {
                             }
                         }
 
+                        // Replay protection
                         {
                             let mut seen_messages = seen_messages_clone.lock().await;
                             if seen_messages.contains(&message_id) {
@@ -646,6 +495,7 @@ impl NetworkManager {
                             seen_messages.insert(message_id.clone());
                         }
 
+                        // Size validation
                         if message.data.len() > 64 * 1024 {
                             peer_reputation_clone
                                 .lock()
@@ -657,10 +507,11 @@ impl NetworkManager {
                             continue;
                         }
 
+                        // Process discovery message
                         if let Ok(discovery_msg) =
                             serde_json::from_slice::<PeerDiscoveryMessage>(&message.data)
                         {
-                            let _source_pubkey = match verify_discovery_message(
+                            let source_pubkey = match Self::verify_discovery_message(
                                 &discovery_msg,
                                 Arc::clone(&rpc_client_clone),
                                 &program_id,
@@ -718,7 +569,7 @@ impl NetworkManager {
                                 }
 
                                 let pubkey_str = pubkey.to_string();
-                                if pubkey_str != local_pubkey.to_string() {
+                                if pubkey_str != source_pubkey.to_string() {
                                     peers_map.insert(
                                         pubkey_str,
                                         PeerInfo {
@@ -731,6 +582,7 @@ impl NetworkManager {
                                 }
                             }
 
+                            // Dial new peers
                             let mut recent_peers: Vec<_> = peers_map
                                 .values()
                                 .filter(|peer| now - peer.last_seen < 1800)
@@ -745,7 +597,9 @@ impl NetworkManager {
                                     }
                                 }
                             }
-                        } else if let Ok(gossip_msg) =
+                        }
+                        // Process gossip message
+                        else if let Ok(gossip_msg) =
                             serde_json::from_slice::<GossipMessage>(&message.data)
                         {
                             let computed_hash = format!("{:x}", Sha256::digest(&gossip_msg.data));
@@ -777,8 +631,8 @@ impl NetworkManager {
                                 continue;
                             }
 
-                            if let Err(e) = sender_clone.send(gossip_msg).await {
-                                error!("Failed to send gossip message to channel: {}", e);
+                            if let Err(e) = _sender_clone.send(gossip_msg).await {
+                                error!("Failed to send gossip message: {}", e);
                             } else {
                                 info!("Processed gossip message from peer: {}", source);
                             }
@@ -792,6 +646,7 @@ impl NetworkManager {
                             warn!("Invalid message format from peer: {}", source);
                         }
 
+                        // Ban low-reputation peers
                         if peer_reputation_clone
                             .lock()
                             .await
@@ -900,21 +755,23 @@ impl NetworkManager {
             _sender,
             local_data: Arc::new(AsyncMutex::new(HashSet::new())),
             peer_reputation,
-            message_rate,
+            _message_rate: message_rate,
             seen_messages,
             ip_blacklist,
             connection_attempts,
         })
     }
 
+    // Publishes data to the network via gossipsub
     pub async fn gossip_data(
         &mut self,
-        key: &str,
-        data: &[u8],
-        origin_pubkey: Pubkey,
-        upload_pda: &str,
-        format: &str,
+        key: &str,             // Data identifier
+        data: &[u8],           // Data payload
+        origin_pubkey: Pubkey, // Originator's public key
+        upload_pda: &str,      // Upload PDA
+        format: &str,          // Data format
     ) {
+        // Collect valid peer IDs
         let valid_peers: Vec<PeerId> = self
             .peers
             .lock()
@@ -927,7 +784,8 @@ impl NetworkManager {
             return;
         }
 
-        let topic = gossipsub::IdentTopic::new("solad-shard");
+        // Prepare gossip message
+        let topic = gossipsub::IdentTopic::new("network-shard");
         let hash = format!("{:x}", Sha256::digest(data));
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -943,6 +801,8 @@ impl NetworkManager {
             hash,
         };
         let message_bytes = serde_json::to_vec(&message).expect("Serialize gossip message");
+
+        // Publish message
         let mut swarm = self.swarm.lock().await;
         if let Err(e) = swarm
             .behaviour_mut()
@@ -958,20 +818,21 @@ impl NetworkManager {
             );
         }
 
+        // Log connection stats
         let connection_stats = self.connection_attempts.lock().await;
         info!("Current connection attempts: {:?}", *connection_stats);
     }
 
+    // Receives and processes gossiped data, storing it if valid
     pub async fn receive_gossiped_data(&mut self, data_store: Arc<DataStore>) {
         while let Some(message) = self.receiver.recv().await {
+            // Skip local data
             if self.is_local(&message.key).await {
-                info!(
-                    "Skipping gossiped data for key: {} (already local)",
-                    message.key
-                );
+                info!("Skipping local data for key: {}", message.key);
                 continue;
             }
 
+            // Validate peer reputation
             let source_peer_id = self
                 .peers
                 .lock()
@@ -989,6 +850,7 @@ impl NetworkManager {
                 continue;
             }
 
+            // Check IP blacklist
             let is_blacklisted =
                 if let Some(peer) = self.peers.lock().await.get(&message.origin_pubkey) {
                     let ip = peer.multiaddr.iter().find_map(|p| match p {
@@ -1015,6 +877,7 @@ impl NetworkManager {
                 continue;
             }
 
+            // Replay protection
             let message_id = {
                 let mut hasher = Sha256::new();
                 hasher.update(&message.data);
@@ -1027,13 +890,13 @@ impl NetworkManager {
             }
             self.seen_messages.lock().await.insert(message_id);
 
+            // Store valid data
             let origin_pubkey = Pubkey::from_str(&message.origin_pubkey)
                 .map_err(|e| {
                     error!("Invalid origin_pubkey: {}", e);
                     ApiError::NetworkError(anyhow::anyhow!("Invalid origin_pubkey: {}", e))
                 })
                 .unwrap();
-
             if let Err(e) = data_store
                 .store_data(
                     &message.key,
@@ -1048,20 +911,159 @@ impl NetworkManager {
             } else {
                 info!("Stored gossiped data for key: {}", message.key);
             }
-
-            if let Some(peer_id) = source_peer_id {
-                let message_rate = self.message_rate.lock().await;
-                if let Some((time, count)) = message_rate.get(&peer_id) {
-                    info!(
-                        "Peer {} message rate: {} messages at time {}",
-                        peer_id, count, time
-                    );
-                }
-            }
         }
     }
 
+    // Checks if data is locally stored
     pub async fn is_local(&self, key: &str) -> bool {
         self.local_data.lock().await.contains(key)
     }
+
+    // Validates active peers against the node registry
+    async fn validate_active_peers(
+        rpc_client: Arc<RpcClient>,
+        program_id: &Pubkey,
+        peers: Vec<PeerInfo>,
+        ip_blacklist: &HashSet<IpNetwork>,
+    ) -> Result<Vec<PeerInfo>, ApiError> {
+        // Fetch node registry
+        let (registry_pda, _bump) = Pubkey::find_program_address(&[b"node_registry"], program_id);
+        let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
+        })?;
+        let node_registry: Vec<Pubkey> =
+            serde_json::from_slice(&registry_account.data).map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!(
+                    "Failed to deserialize node registry: {}",
+                    e
+                ))
+            })?;
+
+        // Fetch node accounts
+        let node_pdas: Vec<Pubkey> = node_registry
+            .iter()
+            .map(|pubkey| Pubkey::find_program_address(&[b"node", pubkey.as_ref()], program_id).0)
+            .collect();
+        let node_accounts = rpc_client
+            .get_multiple_accounts(&node_pdas)
+            .await
+            .map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node accounts: {}", e))
+            })?;
+
+        // Identify active nodes
+        let mut active_nodes = HashSet::new();
+        for (pubkey, account_opt) in node_registry.iter().zip(node_accounts.iter()) {
+            if let Some(account) = account_opt {
+                if let Ok(node_data) = serde_json::from_slice::<Node>(&account.data) {
+                    if node_data.is_active {
+                        active_nodes.insert(*pubkey);
+                    }
+                }
+            }
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mut valid_peers = Vec::new();
+
+        // Validate peers
+        for mut peer in peers {
+            if !active_nodes.contains(&peer.pubkey) {
+                warn!("Peer {} is not registered or not active", peer.pubkey);
+                continue;
+            }
+
+            let ip = peer.multiaddr.iter().find_map(|p| match p {
+                Protocol::Ip4(ip) => Some(ip),
+                _ => None,
+            });
+            if let Some(ip) = ip {
+                if ip_blacklist.iter().any(|net| net.contains(ip)) {
+                    warn!("Skipping blacklisted peer: {}", peer.multiaddr);
+                    continue;
+                }
+            }
+
+            let account = rpc_client
+                .get_account(&peer.pubkey)
+                .await
+                .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+            if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
+                warn!("Skipping invalid peer: {}", peer.pubkey);
+                continue;
+            }
+
+            peer.last_seen = now;
+            valid_peers.push(peer);
+        }
+
+        Ok(valid_peers)
+    }
+
+    // Computes hash for discovery message
+    fn compute_message_hash(peers: &[(Pubkey, Multiaddr, String)], timestamp: u64) -> Vec<u8> {
+        let mut hasher = Sha256::new();
+        for (pubkey, multiaddr, peer_id) in peers {
+            hasher.update(pubkey.to_bytes());
+            hasher.update(multiaddr.to_string().as_bytes());
+            hasher.update(peer_id.as_bytes());
+        }
+        hasher.update(timestamp.to_be_bytes());
+        hasher.finalize().to_vec()
+    }
+
+    // Verifies discovery message signature
+    async fn verify_discovery_message(
+        message: &PeerDiscoveryMessage,
+        rpc_client: Arc<RpcClient>,
+        program_id: &Pubkey,
+    ) -> Result<Pubkey, ApiError> {
+        let (registry_pda, _bump) = Pubkey::find_program_address(&[b"node_registry"], program_id);
+        let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
+            ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
+        })?;
+        let node_registry: Vec<Pubkey> =
+            serde_json::from_slice(&registry_account.data).map_err(|e| {
+                ApiError::NetworkError(anyhow::anyhow!(
+                    "Failed to deserialize node registry: {}",
+                    e
+                ))
+            })?;
+
+        let hash = Self::compute_message_hash(&message.peers, message.timestamp);
+        if message.signature.len() != 64 {
+            return Err(ApiError::NetworkError(anyhow::anyhow!(
+                "Invalid signature length: expected 64 bytes, got {}",
+                message.signature.len()
+            )));
+        }
+
+        let mut signature_bytes = [0u8; 64];
+        signature_bytes.copy_from_slice(&message.signature);
+        let signature = Signature::from(signature_bytes);
+
+        for pubkey in node_registry {
+            if signature.verify(&pubkey.to_bytes(), &hash) {
+                return Ok(pubkey);
+            }
+        }
+
+        Err(ApiError::NetworkError(anyhow::anyhow!(
+            "No valid signature found for discovery message"
+        )))
+    }
+}
+
+// Structure for node data (used in validation)
+#[derive(Clone, Serialize, Deserialize)]
+struct Node {
+    owner: Pubkey,           // Node owner public key
+    stake_amount: u64,       // Staked amount in lamports
+    upload_count: u64,       // Number of uploads
+    last_pos_time: i64,      // Last proof-of-storage time
+    last_claimed_epoch: u64, // Last epoch rewards claimed
+    is_active: bool,         // Node active status
 }

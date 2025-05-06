@@ -1,7 +1,6 @@
 use rocksdb::{Options, DB};
 use std::path::Path;
 use std::sync::Arc;
-// use crate::anchor::MyEvent;
 
 pub struct Database {
     pub inner: Arc<DB>,
@@ -16,11 +15,4 @@ impl Database {
             inner: Arc::new(db),
         })
     }
-
-    // pub fn store_event(&self, key: &[u8], event: &MyEvent) -> Result<(), String> {
-    //     let data = bincode::serialize(event)
-    //         .map_err(|e| format!("Serialization error: {}", e))?;
-    //     self.db.put(key, data)
-    //         .map_err(|e| format!("DB write error: {}", e))
-    // }
 }
