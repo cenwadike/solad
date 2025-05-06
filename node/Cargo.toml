@@ -38,3 +38,5 @@ ip_network = "0.4.1"
 libp2p-tcp = { version = "0.37.0", features = ["tokio", "async-io"] }
 anchor-client = { version = "0.30.1", features = ["async"] }
 borsh = "1.5.5"
+colored = "3.0.0"
+strip-ansi-escapes = "0.2.1"

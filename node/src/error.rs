@@ -3,7 +3,6 @@
 /// conversions from other error types (e.g., RocksDB and Solana client errors). The module
 /// ensures consistent error handling and appropriate HTTP status codes for various failure
 /// scenarios.
-
 use actix_web::http::StatusCode;
 use actix_web::{Error as ActixError, HttpResponse, ResponseError};
 use rocksdb::Error as RocksDBError;

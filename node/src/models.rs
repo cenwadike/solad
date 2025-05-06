@@ -1,7 +1,6 @@
 /// This module defines data structures for API request payloads in a decentralized
 /// storage network. It includes structs for querying keys and submitting key-value
 /// data with validation rules to ensure data integrity.
-
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

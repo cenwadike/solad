@@ -17,7 +17,7 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, NetworkBehaviour, PeerId, Swarm, Transport,
 };
-use log::{error, info, warn};
+use log::{debug, error, info, trace, warn};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -100,75 +100,106 @@ impl NetworkManager {
         db: Arc<Database>,            // Database for persistent storage
         program_id: Pubkey,           // Solana program ID
     ) -> Result<Self, ApiError> {
+        trace!("Starting NetworkManager initialization");
         // Derive local PeerId from keypair
         let local_peer_id = PeerId::from(local_key.public());
         info!("Initializing NetworkManager for peer: {}", local_peer_id);
 
         // Verify local node account exists on Solana
+        trace!("Verifying local node account for pubkey: {}", local_pubkey);
         rpc_client.get_account(&local_pubkey).await.map_err(|e| {
+            error!(
+                "Failed to fetch local account for pubkey {}: {}",
+                local_pubkey, e
+            );
             ApiError::NetworkError(anyhow::anyhow!("Failed to fetch local account: {}", e))
         })?;
-        info!("Verified local node pubkey: {}", local_pubkey);
+        debug!("Verified local node pubkey: {}", local_pubkey);
 
         // Load Solana payer keypair from environment
+        trace!("Loading Solana admin private key");
         let payer =
             Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
+                error!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e);
                 ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
             })?);
+        debug!("Solana admin private key loaded successfully");
 
         // Initialize Solad client for program interactions
+        trace!("Initializing SoladClient for RPC URL: {}", rpc_client.url());
         let solad_client = SoladClient::new(&rpc_client.url(), Arc::new(payer), program_id)
             .await
             .map_err(|e| {
+                error!("Failed to initialize SoladClient: {}", e);
                 ApiError::NetworkError(anyhow::anyhow!("Failed to initialize SoladClient: {}", e))
             })?;
+        debug!("SoladClient initialized successfully");
 
         // Derive node PDA for registration
         let (node_pda, _bump) =
             Pubkey::find_program_address(&[b"node", local_pubkey.as_ref()], &program_id);
+        debug!("Derived node PDA: {}", node_pda);
 
         // Check and handle node registration
         let registration_key = "node_registered";
+        trace!("Checking node registration status");
         let is_registered = db
             .inner
             .get(registration_key.as_bytes())
-            .map_err(|e| ApiError::Database(e))?
+            .map_err(|e| {
+                error!("Database error while checking node registration: {}", e);
+                ApiError::Database(e)
+            })?
             .map(|val| val == b"true")
             .unwrap_or(false);
 
         if !is_registered {
+            trace!("Node not registered, checking on-chain status");
             let node_exists = rpc_client.get_account(&node_pda).await.is_ok();
             if !node_exists {
                 info!("Registering node with stake at PDA: {}", node_pda);
                 // TODO: Replace with actual storage config pubkey
                 let storage_config_pubkey = Pubkey::from_str("YourStorageConfigPubkeyHere")
                     .map_err(|e| {
+                        error!("Invalid storage config pubkey: {}", e);
                         ApiError::NetworkError(anyhow::anyhow!(
                             "Invalid storage config pubkey: {}",
                             e
                         ))
                     })?;
+                trace!(
+                    "Registering node with storage config pubkey: {}",
+                    storage_config_pubkey
+                );
                 solad_client
                     .register_node(1_000_000_000, storage_config_pubkey)
                     .await
                     .map_err(|e| {
+                        error!("Failed to register node for PDA {}: {}", node_pda, e);
                         ApiError::NetworkError(anyhow::anyhow!("Failed to register node: {}", e))
                     })?;
                 db.inner
                     .put(registration_key.as_bytes(), b"true")
-                    .map_err(|e| ApiError::Database(e))?;
+                    .map_err(|e| {
+                        error!("Database error while setting node registration: {}", e);
+                        ApiError::Database(e)
+                    })?;
                 info!("Node registered successfully");
             } else {
                 db.inner
                     .put(registration_key.as_bytes(), b"true")
-                    .map_err(|e| ApiError::Database(e))?;
+                    .map_err(|e| {
+                        error!("Database error while updating node registration: {}", e);
+                        ApiError::Database(e)
+                    })?;
                 info!("Node already registered, updated local status");
             }
         } else {
-            info!("Node registration confirmed for PDA: {}", node_pda);
+            debug!("Node registration confirmed for PDA: {}", node_pda);
         }
 
         // Set up gossipsub configuration
+        trace!("Configuring gossipsub");
         let gossipsub_config = gossipsub::GossipsubConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(10)) // Heartbeat every 10 seconds
             .validation_mode(ValidationMode::Strict) // Strict message validation
@@ -187,28 +218,41 @@ impl NetworkManager {
             .history_length(300) // Keep 300 messages in history
             .build()
             .map_err(|e| {
+                error!("Gossipsub config error: {}", e);
                 ApiError::NetworkError(anyhow::anyhow!("Gossipsub config error: {}", e))
             })?;
+        debug!("Gossipsub configuration completed");
 
         // Initialize gossipsub with signed messages
+        trace!("Initializing gossipsub with signed messages");
         let mut gossipsub = gossipsub::Gossipsub::new(
             MessageAuthenticity::Signed(local_key.clone()),
             gossipsub_config,
         )
-        .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Gossipsub init error: {}", e)))?;
+        .map_err(|e| {
+            error!("Gossipsub init error: {}", e);
+            ApiError::NetworkError(anyhow::anyhow!("Gossipsub init error: {}", e))
+        })?;
+        debug!("Gossipsub initialized successfully");
 
         // Subscribe to shard and discovery topics
         let data_topic = gossipsub::IdentTopic::new("network-shard");
-        gossipsub
-            .subscribe(&data_topic)
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Subscribe shard error: {}", e)))?;
-
-        let discovery_topic = gossipsub::IdentTopic::new("network-discovery");
-        gossipsub.subscribe(&discovery_topic).map_err(|e| {
-            ApiError::NetworkError(anyhow::anyhow!("Subscribe discovery error: {}", e))
+        trace!("Subscribing to data topic: network-shard");
+        gossipsub.subscribe(&data_topic).map_err(|e| {
+            error!("Subscribe shard error: {}", e);
+            ApiError::NetworkError(anyhow::anyhow!("Subscribe shard error: {}", e))
         })?;
 
+        let discovery_topic = gossipsub::IdentTopic::new("network-discovery");
+        trace!("Subscribing to discovery topic: network-discovery");
+        gossipsub.subscribe(&discovery_topic).map_err(|e| {
+            error!("Subscribe discovery error: {}", e);
+            ApiError::NetworkError(anyhow::anyhow!("Subscribe discovery error: {}", e))
+        })?;
+        debug!("Subscribed to shard and discovery topics");
+
         // Set up TCP transport with noise authentication and yamux multiplexing
+        trace!("Setting up TCP transport");
         let transport = tcp::TcpTransport::new(tcp::GenTcpConfig::default())
             .upgrade(upgrade::Version::V1)
             .authenticate(
@@ -218,8 +262,10 @@ impl NetworkManager {
             .multiplex(yamux::YamuxConfig::default())
             .timeout(Duration::from_secs(20))
             .boxed();
+        debug!("TCP transport configured");
 
         // Initialize swarm with connection limits
+        trace!("Initializing swarm");
         let behaviour = NetworkBehaviour { gossipsub };
         let swarm = SwarmBuilder::new(transport, behaviour, local_peer_id)
             .connection_limits(
@@ -231,37 +277,49 @@ impl NetworkManager {
             )
             .build();
         let swarm = Arc::new(AsyncMutex::new(swarm));
+        debug!("Swarm initialized with connection limits");
 
         // Start listening on all interfaces
         let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().map_err(|e| {
+            error!("Invalid listen address: {}", e);
             ApiError::NetworkError(anyhow::anyhow!("Invalid listen address: {}", e))
         })?;
-        swarm
-            .lock()
-            .await
-            .listen_on(listen_addr)
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Listen error: {}", e)))?;
+        trace!("Starting to listen on address: {}", listen_addr);
+        swarm.lock().await.listen_on(listen_addr).map_err(|e| {
+            error!("Listen error: {}", e);
+            ApiError::NetworkError(anyhow::anyhow!("Listen error: {}", e))
+        })?;
+        debug!("Swarm listening on address");
 
         // Initialize IP blacklist
+        trace!("Initializing IP blacklist");
         let ip_blacklist: HashSet<IpNetwork> = vec![IpNetwork::new(
-            "192.168.0.0"
-                .parse::<Ipv4Addr>()
-                .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Invalid IP: {}", e)))?,
+            "192.168.0.0".parse::<Ipv4Addr>().map_err(|e| {
+                error!("Invalid IP for blacklist: {}", e);
+                ApiError::NetworkError(anyhow::anyhow!("Invalid IP: {}", e))
+            })?,
             16,
         )
-        .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Invalid netmask: {}", e)))?]
+        .map_err(|e| {
+            error!("Invalid netmask for blacklist: {}", e);
+            ApiError::NetworkError(anyhow::anyhow!("Invalid netmask: {}", e))
+        })?]
         .into_iter()
         .collect();
         let ip_blacklist = Arc::new(AsyncMutex::new(ip_blacklist));
+        debug!("IP blacklist initialized");
 
         // Initialize peers map
+        trace!("Initializing peers map");
         let mut peers_map = HashMap::new();
         for peer in peers {
             peers_map.insert(peer.pubkey.to_string(), peer);
         }
-        let peers = Arc::new(AsyncMutex::new(peers_map));
+        let peers = Arc::new(AsyncMutex::new(peers_map.clone()));
+        debug!("Peers map initialized with {} peers", peers_map.len());
 
         // Validate initial peers
+        trace!("Validating initial peers");
         let valid_peers = Self::validate_active_peers(
             rpc_client.clone(),
             &program_id,
@@ -271,22 +329,30 @@ impl NetworkManager {
         .await?;
         {
             let mut peers_map = peers.lock().await;
-            for peer in valid_peers {
+            for peer in valid_peers.clone() {
                 peers_map.insert(peer.pubkey.to_string(), peer);
             }
         }
+        debug!("Validated {} peers", valid_peers.len());
 
         // Dial bootstrap node
         let bootstrap_addr: Multiaddr = "/ip4/127.0.0.1/tcp/4000".parse().map_err(|e| {
+            error!("Invalid bootstrap address: {}", e);
             ApiError::NetworkError(anyhow::anyhow!("Invalid bootstrap address: {}", e))
         })?;
+        trace!("Dialing bootstrap node: {}", bootstrap_addr);
         swarm
             .lock()
             .await
             .dial(bootstrap_addr.clone())
-            .map_err(|e| ApiError::NetworkError(anyhow::anyhow!("Dial bootstrap error: {}", e)))?;
+            .map_err(|e| {
+                error!("Dial bootstrap error: {}", e);
+                ApiError::NetworkError(anyhow::anyhow!("Dial bootstrap error: {}", e))
+            })?;
+        debug!("Dialed bootstrap node");
 
         // Initialize state tracking
+        trace!("Initializing state tracking");
         let (_sender, receiver) = mpsc::channel(100);
         let peer_reputation = Arc::new(AsyncMutex::new(HashMap::new()));
         let message_rate = Arc::new(AsyncMutex::new(HashMap::new()));
@@ -298,6 +364,7 @@ impl NetworkManager {
                 .unwrap()
                 .as_secs(),
         ));
+        debug!("State tracking initialized");
 
         // Spawn peer discovery task
         let swarm_clone = Arc::clone(&swarm);
@@ -315,12 +382,19 @@ impl NetworkManager {
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_secs();
+                trace!("Checking for peer discovery (current time: {})", now);
                 let should_discover = {
                     let last_discovery_time = *last_discovery_clone.lock().await;
-                    now - last_discovery_time >= 300
+                    let should = now - last_discovery_time >= 300;
+                    debug!(
+                        "Last discovery: {}, Should discover: {}",
+                        last_discovery_time, should
+                    );
+                    should
                 };
 
                 if should_discover {
+                    trace!("Starting peer discovery");
                     // Fetch and validate new peers
                     let new_peers = match Self::validate_active_peers(
                         Arc::clone(&rpc_client_clone),
@@ -330,7 +404,10 @@ impl NetworkManager {
                     )
                     .await
                     {
-                        Ok(peers) => peers,
+                        Ok(peers) => {
+                            debug!("Fetched {} new peers", peers.len());
+                            peers
+                        }
                         Err(e) => {
                             warn!("Failed to fetch peers: {}", e);
                             vec![]
@@ -348,6 +425,7 @@ impl NetworkManager {
                         }
                     }
                     peers_map.retain(|_, peer| now - peer.last_seen < 3600);
+                    debug!("Updated peer list, retained {} peers", peers_map.len());
 
                     // Prepare discovery message
                     let recent_peers: Vec<(Pubkey, Multiaddr, String)> = peers_map
@@ -361,6 +439,10 @@ impl NetworkManager {
                             )
                         })
                         .collect();
+                    trace!(
+                        "Prepared discovery message with {} recent peers",
+                        recent_peers.len()
+                    );
 
                     let timestamp = now;
                     let hash = Self::compute_message_hash(&recent_peers, timestamp);
@@ -378,6 +460,7 @@ impl NetworkManager {
                     };
 
                     // Publish discovery message
+                    trace!("Publishing discovery message");
                     let message_bytes = serde_json::to_vec(&discovery_message)
                         .expect("Serialize discovery message");
                     if let Err(e) = swarm
@@ -395,7 +478,7 @@ impl NetworkManager {
 
                     // Log seen messages count
                     let seen_messages_count = seen_messages_clone.lock().await.len();
-                    info!("Current seen messages: {}", seen_messages_count);
+                    debug!("Current seen messages: {}", seen_messages_count);
 
                     // Dial recent peers
                     let mut recent_peers: Vec<_> = peers_map
@@ -403,6 +486,7 @@ impl NetworkManager {
                         .filter(|peer| now - peer.last_seen < 1800)
                         .collect();
                     recent_peers.shuffle(&mut rand::rng());
+                    trace!("Dialing up to 8 recent peers");
                     for peer in recent_peers.iter().take(8) {
                         let reputation = peer_reputation_clone.lock().await;
                         if reputation
@@ -414,6 +498,7 @@ impl NetworkManager {
                         }
 
                         if !swarm.is_connected(&peer.peer_id) {
+                            trace!("Dialing peer: {}", peer.peer_id);
                             if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
                                 warn!("Failed to dial peer {}: {}", peer.peer_id, e);
                             } else {
@@ -423,6 +508,7 @@ impl NetworkManager {
                     }
 
                     *last_discovery_clone.lock().await = now;
+                    debug!("Updated last discovery time to: {}", now);
                 }
             }
         });
@@ -440,6 +526,7 @@ impl NetworkManager {
 
         task::spawn(async move {
             loop {
+                trace!("Waiting for next swarm event");
                 let event = {
                     let mut swarm = swarm_clone.lock().await;
                     swarm.next().await
@@ -456,6 +543,7 @@ impl NetworkManager {
                             .duration_since(UNIX_EPOCH)
                             .unwrap()
                             .as_secs();
+                        trace!("Received gossipsub message from peer: {}", source);
 
                         // Rate limiting
                         {
@@ -477,6 +565,7 @@ impl NetworkManager {
                                 *last_time = now;
                                 *count = 1;
                             }
+                            debug!("Message rate for peer {}: count={}", source, count);
                         }
 
                         // Replay protection
@@ -493,6 +582,7 @@ impl NetworkManager {
                                 continue;
                             }
                             seen_messages.insert(message_id.clone());
+                            debug!("Added message ID {} to seen messages", message_id);
                         }
 
                         // Size validation
@@ -511,6 +601,7 @@ impl NetworkManager {
                         if let Ok(discovery_msg) =
                             serde_json::from_slice::<PeerDiscoveryMessage>(&message.data)
                         {
+                            trace!("Processing discovery message from peer: {}", source);
                             let source_pubkey = match Self::verify_discovery_message(
                                 &discovery_msg,
                                 Arc::clone(&rpc_client_clone),
@@ -530,6 +621,7 @@ impl NetworkManager {
                                     continue;
                                 }
                             };
+                            debug!("Verified discovery message from pubkey: {}", source_pubkey);
 
                             if discovery_msg.timestamp < now - 300
                                 || discovery_msg.timestamp > now + 300
@@ -552,10 +644,15 @@ impl NetworkManager {
                                 let peer_id = match PeerId::from_str(&peer_id_str) {
                                     Ok(peer_id) => peer_id,
                                     Err(e) => {
-                                        warn!("Invalid PeerId {}: {}", peer_id_str, e);
+                                        warn!("Invalid Peer LotId {}: {}", peer_id_str, e);
                                         continue;
                                     }
                                 };
+                                trace!(
+                                    "Processing peer: {} with multiaddr: {}",
+                                    peer_id,
+                                    multiaddr
+                                );
 
                                 let ip = multiaddr.iter().find_map(|p| match p {
                                     Protocol::Ip4(ip) => Some(ip),
@@ -571,7 +668,7 @@ impl NetworkManager {
                                 let pubkey_str = pubkey.to_string();
                                 if pubkey_str != source_pubkey.to_string() {
                                     peers_map.insert(
-                                        pubkey_str,
+                                        pubkey_str.clone(),
                                         PeerInfo {
                                             pubkey,
                                             multiaddr,
@@ -579,6 +676,7 @@ impl NetworkManager {
                                             last_seen: now,
                                         },
                                     );
+                                    debug!("Added peer {} to peers map", pubkey_str);
                                 }
                             }
 
@@ -588,8 +686,10 @@ impl NetworkManager {
                                 .filter(|peer| now - peer.last_seen < 1800)
                                 .collect();
                             recent_peers.shuffle(&mut rand::rng());
+                            trace!("Dialing up to 8 recent peers from discovery message");
                             for peer in recent_peers.iter().take(8) {
                                 if !swarm.is_connected(&peer.peer_id) {
+                                    trace!("Dialing peer: {}", peer.peer_id);
                                     if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
                                         warn!("Failed to dial peer {}: {}", peer.peer_id, e);
                                     } else {
@@ -602,6 +702,7 @@ impl NetworkManager {
                         else if let Ok(gossip_msg) =
                             serde_json::from_slice::<GossipMessage>(&message.data)
                         {
+                            trace!("Processing gossip message for key: {}", gossip_msg.key);
                             let computed_hash = format!("{:x}", Sha256::digest(&gossip_msg.data));
                             if computed_hash != gossip_msg.hash {
                                 peer_reputation_clone
@@ -613,6 +714,7 @@ impl NetworkManager {
                                 warn!("Invalid hash from peer: {}", source);
                                 continue;
                             }
+                            debug!("Hash verified for gossip message key: {}", gossip_msg.key);
 
                             let current_time = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
@@ -631,6 +733,7 @@ impl NetworkManager {
                                 continue;
                             }
 
+                            trace!("Sending gossip message to channel");
                             if let Err(e) = _sender_clone.send(gossip_msg).await {
                                 error!("Failed to send gossip message: {}", e);
                             } else {
@@ -698,6 +801,7 @@ impl NetworkManager {
                             let peers_map = peers_clone.lock().await;
                             if let Some(peer) = peers_map.values().find(|p| p.peer_id == peer_id) {
                                 let mut swarm = swarm_clone.lock().await;
+                                trace!("Retrying connection to peer: {}", peer_id);
                                 if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
                                     warn!("Failed to retry connection to {}: {}", peer_id, e);
                                 } else {
@@ -734,6 +838,7 @@ impl NetworkManager {
                                     peers_map.values().find(|p| p.peer_id == peer_id)
                                 {
                                     let mut swarm = swarm_clone.lock().await;
+                                    trace!("Retrying connection to peer: {}", peer_id);
                                     if let Err(e) = swarm.dial(peer.multiaddr.clone()) {
                                         warn!("Failed to retry connection to {}: {}", peer_id, e);
                                     } else {
@@ -743,11 +848,14 @@ impl NetworkManager {
                             }
                         }
                     }
-                    _ => {}
+                    _ => {
+                        trace!("Unhandled swarm event");
+                    }
                 }
             }
         });
 
+        info!("NetworkManager initialized successfully");
         Ok(NetworkManager {
             swarm,
             peers,
@@ -771,6 +879,7 @@ impl NetworkManager {
         upload_pda: &str,      // Upload PDA
         format: &str,          // Data format
     ) {
+        trace!("Starting gossip_data for key: {}", key);
         // Collect valid peer IDs
         let valid_peers: Vec<PeerId> = self
             .peers
@@ -783,6 +892,7 @@ impl NetworkManager {
             warn!("No valid peers to gossip data for key: {}", key);
             return;
         }
+        debug!("Found {} valid peers for gossiping", valid_peers.len());
 
         // Prepare gossip message
         let topic = gossipsub::IdentTopic::new("network-shard");
@@ -800,16 +910,18 @@ impl NetworkManager {
             timestamp,
             hash,
         };
+        trace!("Prepared gossip message for key: {}", key);
         let message_bytes = serde_json::to_vec(&message).expect("Serialize gossip message");
 
         // Publish message
         let mut swarm = self.swarm.lock().await;
+        trace!("Publishing gossip message to topic: network-shard");
         if let Err(e) = swarm
             .behaviour_mut()
             .gossipsub
             .publish(topic, message_bytes)
         {
-            error!("Failed to publish gossip message: {}", e);
+            error!("Failed to publish gossip message for key {}: {}", key, e);
         } else {
             info!(
                 "Published gossip message for key: {} to {} peers",
@@ -820,15 +932,17 @@ impl NetworkManager {
 
         // Log connection stats
         let connection_stats = self.connection_attempts.lock().await;
-        info!("Current connection attempts: {:?}", *connection_stats);
+        debug!("Current connection attempts: {:?}", *connection_stats);
     }
 
     // Receives and processes gossiped data, storing it if valid
     pub async fn receive_gossiped_data(&mut self, data_store: Arc<DataStore>) {
+        trace!("Starting receive_gossiped_data loop");
         while let Some(message) = self.receiver.recv().await {
+            trace!("Received gossiped message for key: {}", message.key);
             // Skip local data
             if self.is_local(&message.key).await {
-                info!("Skipping local data for key: {}", message.key);
+                debug!("Skipping local data for key: {}", message.key);
                 continue;
             }
 
@@ -845,6 +959,7 @@ impl NetworkManager {
                     warn!("Ignoring message from low-reputation peer: {}", peer_id);
                     continue;
                 }
+                debug!("Peer {} has acceptable reputation", peer_id);
             } else {
                 warn!("Unknown peer pubkey: {}", message.origin_pubkey);
                 continue;
@@ -876,6 +991,7 @@ impl NetworkManager {
                 );
                 continue;
             }
+            debug!("Peer {} not blacklisted", message.origin_pubkey);
 
             // Replay protection
             let message_id = {
@@ -889,6 +1005,7 @@ impl NetworkManager {
                 continue;
             }
             self.seen_messages.lock().await.insert(message_id);
+            debug!("Added message ID for key: {} to seen messages", message.key);
 
             // Store valid data
             let origin_pubkey = Pubkey::from_str(&message.origin_pubkey)
@@ -897,6 +1014,7 @@ impl NetworkManager {
                     ApiError::NetworkError(anyhow::anyhow!("Invalid origin_pubkey: {}", e))
                 })
                 .unwrap();
+            trace!("Storing gossiped data for key: {}", message.key);
             if let Err(e) = data_store
                 .store_data(
                     &message.key,
@@ -907,7 +1025,10 @@ impl NetworkManager {
                 )
                 .await
             {
-                error!("Failed to store gossiped data: {}", e);
+                error!(
+                    "Failed to store gossiped data for key {}: {}",
+                    message.key, e
+                );
             } else {
                 info!("Stored gossiped data for key: {}", message.key);
             }
@@ -916,7 +1037,10 @@ impl NetworkManager {
 
     // Checks if data is locally stored
     pub async fn is_local(&self, key: &str) -> bool {
-        self.local_data.lock().await.contains(key)
+        trace!("Checking if key {} is local", key);
+        let is_local = self.local_data.lock().await.contains(key);
+        debug!("Key {} is_local: {}", key, is_local);
+        is_local
     }
 
     // Validates active peers against the node registry
@@ -926,28 +1050,35 @@ impl NetworkManager {
         peers: Vec<PeerInfo>,
         ip_blacklist: &HashSet<IpNetwork>,
     ) -> Result<Vec<PeerInfo>, ApiError> {
+        trace!("Validating active peers");
         // Fetch node registry
         let (registry_pda, _bump) = Pubkey::find_program_address(&[b"node_registry"], program_id);
+        trace!("Fetching node registry for PDA: {}", registry_pda);
         let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
+            error!("Failed to fetch node registry: {}", e);
             ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
         })?;
         let node_registry: Vec<Pubkey> =
             serde_json::from_slice(&registry_account.data).map_err(|e| {
+                error!("Failed to deserialize node registry: {}", e);
                 ApiError::NetworkError(anyhow::anyhow!(
                     "Failed to deserialize node registry: {}",
                     e
                 ))
             })?;
+        debug!("Fetched node registry with {} nodes", node_registry.len());
 
         // Fetch node accounts
         let node_pdas: Vec<Pubkey> = node_registry
             .iter()
             .map(|pubkey| Pubkey::find_program_address(&[b"node", pubkey.as_ref()], program_id).0)
             .collect();
+        trace!("Fetching {} node accounts", node_pdas.len());
         let node_accounts = rpc_client
             .get_multiple_accounts(&node_pdas)
             .await
             .map_err(|e| {
+                error!("Failed to fetch node accounts: {}", e);
                 ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node accounts: {}", e))
             })?;
 
@@ -962,6 +1093,7 @@ impl NetworkManager {
                 }
             }
         }
+        debug!("Identified {} active nodes", active_nodes.len());
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -987,24 +1119,28 @@ impl NetworkManager {
                 }
             }
 
-            let account = rpc_client
-                .get_account(&peer.pubkey)
-                .await
-                .map_err(|e| ApiError::NetworkError(anyhow::anyhow!(e.to_string())))?;
+            trace!("Validating peer account: {}", peer.pubkey);
+            let account = rpc_client.get_account(&peer.pubkey).await.map_err(|e| {
+                error!("Failed to fetch account for peer {}: {}", peer.pubkey, e);
+                ApiError::NetworkError(anyhow::anyhow!(e.to_string()))
+            })?;
             if account.owner != Pubkey::from_str("11111111111111111111111111111111").unwrap() {
                 warn!("Skipping invalid peer: {}", peer.pubkey);
                 continue;
             }
 
             peer.last_seen = now;
-            valid_peers.push(peer);
+            valid_peers.push(peer.clone());
+            debug!("Validated peer: {}", peer.pubkey);
         }
 
+        info!("Validated {} active peers", valid_peers.len());
         Ok(valid_peers)
     }
 
     // Computes hash for discovery message
     fn compute_message_hash(peers: &[(Pubkey, Multiaddr, String)], timestamp: u64) -> Vec<u8> {
+        trace!("Computing message hash for discovery message");
         let mut hasher = Sha256::new();
         for (pubkey, multiaddr, peer_id) in peers {
             hasher.update(pubkey.to_bytes());
@@ -1012,7 +1148,9 @@ impl NetworkManager {
             hasher.update(peer_id.as_bytes());
         }
         hasher.update(timestamp.to_be_bytes());
-        hasher.finalize().to_vec()
+        let hash = hasher.finalize().to_vec();
+        debug!("Computed message hash");
+        hash
     }
 
     // Verifies discovery message signature
@@ -1021,20 +1159,29 @@ impl NetworkManager {
         rpc_client: Arc<RpcClient>,
         program_id: &Pubkey,
     ) -> Result<Pubkey, ApiError> {
+        trace!("Verifying discovery message signature");
         let (registry_pda, _bump) = Pubkey::find_program_address(&[b"node_registry"], program_id);
+        trace!("Fetching node registry for PDA: {}", registry_pda);
         let registry_account = rpc_client.get_account(&registry_pda).await.map_err(|e| {
+            error!("Failed to fetch node registry: {}", e);
             ApiError::NetworkError(anyhow::anyhow!("Failed to fetch node registry: {}", e))
         })?;
         let node_registry: Vec<Pubkey> =
             serde_json::from_slice(&registry_account.data).map_err(|e| {
+                error!("Failed to deserialize node registry: {}", e);
                 ApiError::NetworkError(anyhow::anyhow!(
                     "Failed to deserialize node registry: {}",
                     e
                 ))
             })?;
+        debug!("Fetched node registry with {} nodes", node_registry.len());
 
         let hash = Self::compute_message_hash(&message.peers, message.timestamp);
         if message.signature.len() != 64 {
+            error!(
+                "Invalid signature length: expected 64 bytes, got {}",
+                message.signature.len()
+            );
             return Err(ApiError::NetworkError(anyhow::anyhow!(
                 "Invalid signature length: expected 64 bytes, got {}",
                 message.signature.len()
@@ -1047,10 +1194,12 @@ impl NetworkManager {
 
         for pubkey in node_registry {
             if signature.verify(&pubkey.to_bytes(), &hash) {
+                debug!("Signature verified for pubkey: {}", pubkey);
                 return Ok(pubkey);
             }
         }
 
+        error!("No valid signature found for discovery message");
         Err(ApiError::NetworkError(anyhow::anyhow!(
             "No valid signature found for discovery message"
         )))

@@ -2,9 +2,9 @@
 /// storage network. It integrates with the Solana blockchain to subscribe to transaction logs,
 /// parse upload events, and verify payments. The module includes the `UploadEventListener` for
 /// capturing events and the `UploadEventConsumer` for validating and managing them.
-
 use base64::Engine;
 use dashmap::DashMap;
+use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
@@ -23,14 +23,14 @@ use crate::error::ApiError;
 /// nodes, storage duration, and timestamp.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UploadEvent {
-    pub upload_pda: Pubkey,          // Program-derived address for the upload
-    pub data_hash: String,           // SHA-256 hash of the uploaded data
-    pub size_bytes: u64,             // Size of the data in bytes
-    pub shard_count: u8,             // Number of shards for the data
-    pub payer: Pubkey,               // Public key of the payer
-    pub nodes: Vec<Pubkey>,          // List of node public keys assigned to store the data
-    pub storage_duration_days: u64,  // Duration for which the data should be stored
-    pub timestamp: i64,              // Unix timestamp of the event
+    pub upload_pda: Pubkey,         // Program-derived address for the upload
+    pub data_hash: String,          // SHA-256 hash of the uploaded data
+    pub size_bytes: u64,            // Size of the data in bytes
+    pub shard_count: u8,            // Number of shards for the data
+    pub payer: Pubkey,              // Public key of the payer
+    pub nodes: Vec<Pubkey>,         // List of node public keys assigned to store the data
+    pub storage_duration_days: u64, // Duration for which the data should be stored
+    pub timestamp: i64,             // Unix timestamp of the event
 }
 
 /// Configuration for the event listener and consumer.
@@ -39,10 +39,10 @@ pub struct UploadEvent {
 /// and process events.
 #[derive(Debug, Clone)]
 pub struct EventListenerConfig {
-    pub ws_url: String,              // WebSocket URL for Solana RPC
-    pub http_url: String,            // HTTP URL for Solana RPC
-    pub program_id: Pubkey,          // Solana program ID
-    pub node_pubkey: Pubkey,         // Public key of the current node
+    pub ws_url: String,               // WebSocket URL for Solana RPC
+    pub http_url: String,             // HTTP URL for Solana RPC
+    pub program_id: Pubkey,           // Solana program ID
+    pub node_pubkey: Pubkey,          // Public key of the current node
     pub commitment: CommitmentConfig, // Commitment level for blockchain operations
 }
 
@@ -55,12 +55,14 @@ pub type EventMap = Arc<DashMap<Pubkey, UploadEvent>>;
 /// from the specified program, and stores relevant events in the `EventMap` if the current
 /// node is assigned to store the data.
 pub struct UploadEventListener {
-    config: EventListenerConfig,  // Configuration for the listener
+    config: EventListenerConfig, // Configuration for the listener
     event_map: EventMap,         // Shared map for storing events
 }
 
 impl UploadEventListener {
     /// Creates a new `UploadEventListener` instance.
+    ///
+    /// Initializes the listener with the provided configuration and shared event map.
     ///
     /// # Arguments
     ///
@@ -93,33 +95,38 @@ impl UploadEventListener {
     /// }
     /// ```
     pub async fn new(config: EventListenerConfig, event_map: EventMap) -> Self {
-        Self { config, event_map }
+        trace!(
+            "Initializing UploadEventListener with ws_url: {}",
+            config.ws_url
+        );
+        let listener = Self { config, event_map };
+        debug!(
+            "UploadEventListener initialized for node: {}",
+            listener.config.node_pubkey
+        );
+        listener
     }
 
     /// Starts the event listener, subscribing to Solana transaction logs.
     ///
-    /// Subscribes to logs for the configured program ID, processes incoming logs, and
-    /// stores relevant upload events in the `EventMap`. Runs indefinitely until the
-    /// subscription is disconnected.
+    /// Sets up a WebSocket subscription to capture transaction logs for the program ID,
+    /// processes incoming logs, and stores relevant upload events in the `EventMap`.
     ///
     /// # Returns
     ///
-    /// * `Result<(), ApiError>` - Returns `Ok(())` if the listener runs successfully,
-    ///   or `ApiError::SubscriptionFailed` if the subscription fails or disconnects.
+    /// * `Result<(), ApiError>` - `Ok(())` if the listener runs successfully,
+    ///   or `ApiError::SubscriptionFailed` if the subscription fails.
     ///
     /// # Workflow
     ///
-    /// 1. **Subscription Setup**: Configures a WebSocket subscription for transaction logs
+    /// 1. **Subscription Setup**: Establishes a WebSocket connection to subscribe to logs
     ///    mentioning the program ID.
-    /// 2. **Log Processing**: Continuously receives log messages, parsing those containing
-    ///    "Program data:" for upload events.
-    /// 3. **Event Storage**: Stores events in the `EventMap` if the current node is listed
-    ///    in the event's nodes.
+    /// 2. **Log Processing**: Parses logs for "Program data:" entries to extract upload events.
+    /// 3. **Event Storage**: Stores events in the `EventMap` if the current node is assigned.
     ///
     /// # Errors
     ///
-    /// - `ApiError::SubscriptionFailed`: If the WebSocket subscription fails to initialize
-    ///   or disconnects.
+    /// * `ApiError::SubscriptionFailed` - If the WebSocket subscription fails or disconnects.
     ///
     /// # Examples
     ///
@@ -144,35 +151,53 @@ impl UploadEventListener {
     /// }
     /// ```
     pub async fn start(&self) -> Result<(), ApiError> {
+        info!(
+            "Starting UploadEventListener for program: {}",
+            self.config.program_id
+        );
         // Configure logs subscription
         let filter = RpcTransactionLogsFilter::Mentions(vec![self.config.program_id.to_string()]);
         let logs_config = RpcTransactionLogsConfig {
             commitment: Some(self.config.commitment.clone()),
         };
+        trace!(
+            "Configuring WebSocket subscription with filter for program: {}",
+            self.config.program_id
+        );
 
-        // Subscribe to logs
+        // Establish WebSocket subscription
         let (_sub, stream) = solana_client::pubsub_client::PubsubClient::logs_subscribe(
             &self.config.ws_url,
             filter,
             logs_config,
         )
-        .map_err(|_| ApiError::SubscriptionFailed)?;
+        .map_err(|e| {
+            error!("Failed to establish WebSocket subscription: {}", e);
+            ApiError::SubscriptionFailed
+        })?;
+        info!(
+            "WebSocket subscription established for program: {}",
+            self.config.program_id
+        );
 
         // Process incoming log messages
         loop {
             match stream.try_recv() {
                 Ok(response) => {
+                    trace!("Received log response");
+                    // Handle received log response
                     if let Err(e) = self.process_log_response(response).await {
-                        eprintln!("Error processing log: {}", e);
+                        warn!("Error processing log response: {}", e);
                         continue;
                     }
                 }
                 Err(crossbeam_channel::TryRecvError::Empty) => {
-                    // No messages available, continue looping
+                    // No messages, continue polling
+                    trace!("No new log messages available");
                     continue;
                 }
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    // Channel disconnected, break the loop
+                    error!("WebSocket subscription disconnected");
                     return Err(ApiError::SubscriptionFailed);
                 }
             }
@@ -181,9 +206,8 @@ impl UploadEventListener {
 
     /// Processes a log response from the Solana subscription.
     ///
-    /// Extracts logs containing "Program data:", parses them for upload events, and stores
-    /// relevant events in the `EventMap` if the current node is included in the event's
-    /// node list.
+    /// Parses transaction logs for "Program data:" entries, extracts upload events,
+    /// and stores them in the `EventMap` if the current node is assigned.
     ///
     /// # Arguments
     ///
@@ -191,8 +215,8 @@ impl UploadEventListener {
     ///
     /// # Returns
     ///
-    /// * `Result<(), ApiError>` - Returns `Ok(())` if the response is processed
-    ///   successfully, or an `ApiError` if parsing or processing fails.
+    /// * `Result<(), ApiError>` - `Ok(())` if processed successfully, or an `ApiError`
+    ///   if parsing fails.
     async fn process_log_response(
         &self,
         response: solana_client::rpc_response::Response<
@@ -200,14 +224,32 @@ impl UploadEventListener {
         >,
     ) -> Result<(), ApiError> {
         let logs_response = response.value;
+        debug!(
+            "Processing log response with {} logs",
+            logs_response.logs.len()
+        );
 
+        // Iterate through logs to find upload events
         for log in logs_response.logs {
             if log.contains("Program data:") {
+                trace!("Found log with Program data");
                 if let Some(event) = self.parse_upload_event(&log).await {
-                    // Only store events where this node is included
+                    debug!("Parsed upload event for upload_pda: {}", event.upload_pda);
+                    // Store event if this node is in the node list
                     if event.nodes.contains(&self.config.node_pubkey) {
+                        info!(
+                            "Storing event for upload_pda: {} (node assigned)",
+                            event.upload_pda
+                        );
                         self.event_map.insert(event.upload_pda, event);
+                    } else {
+                        debug!(
+                            "Skipping event for upload_pda: {} (node not assigned)",
+                            event.upload_pda
+                        );
                     }
+                } else {
+                    warn!("Failed to parse upload event from log: {}", log);
                 }
             }
         }
@@ -217,8 +259,8 @@ impl UploadEventListener {
 
     /// Parses an upload event from a transaction log.
     ///
-    /// Extracts base64-encoded event data from the log, decodes it, and deserializes it
-    /// into an `UploadEvent` struct.
+    /// Decodes base64-encoded event data from the log and deserializes it into an
+    /// `UploadEvent` struct.
     ///
     /// # Arguments
     ///
@@ -226,23 +268,49 @@ impl UploadEventListener {
     ///
     /// # Returns
     ///
-    /// * `Option<UploadEvent>` - Returns `Some(UploadEvent)` if parsing is successful,
-    ///   or `None` if the log is invalid or deserialization fails.
+    /// * `Option<UploadEvent>` - `Some(UploadEvent)` if parsing succeeds, `None` otherwise.
     async fn parse_upload_event(&self, log: &str) -> Option<UploadEvent> {
-        let base64_data = log.strip_prefix("Program data: ")?.trim();
-        let decoded_data = match base64::prelude::BASE64_STANDARD.decode(base64_data) {
-            Ok(data) => data,
-            Err(_) => return None,
+        trace!("Parsing upload event from log");
+        // Extract base64 data from log
+        let base64_data = match log.strip_prefix("Program data: ") {
+            Some(data) => data.trim(),
+            None => {
+                warn!("Log does not start with 'Program data:': {}", log);
+                return None;
+            }
         };
 
+        let decoded_data = match base64::prelude::BASE64_STANDARD.decode(base64_data) {
+            Ok(data) => {
+                debug!("Successfully decoded base64 data, length: {}", data.len());
+                data
+            }
+            Err(e) => {
+                warn!("Failed to decode base64 data: {}", e);
+                return None;
+            }
+        };
+
+        // Validate data length
         if decoded_data.len() < 8 {
+            warn!("Decoded data too short: {} bytes", decoded_data.len());
             return None;
         }
 
+        // Deserialize event data
         let event_data = &decoded_data[8..];
         match bincode::deserialize::<UploadEvent>(event_data) {
-            Ok(event) => Some(event),
-            Err(_) => None,
+            Ok(event) => {
+                info!(
+                    "Successfully parsed upload event for upload_pda: {}",
+                    event.upload_pda
+                );
+                Some(event)
+            }
+            Err(e) => {
+                warn!("Failed to deserialize upload event: {}", e);
+                None
+            }
         }
     }
 }
@@ -253,13 +321,15 @@ impl UploadEventListener {
 /// verify the validity of events, ensuring node registration and payment in the escrow
 /// account.
 pub struct UploadEventConsumer {
-    config: EventListenerConfig,  // Configuration for the consumer
+    config: EventListenerConfig, // Configuration for the consumer
     event_map: EventMap,         // Shared map of upload events
     rpc_client: Arc<RpcClient>,  // Solana RPC client for account queries
 }
 
 impl UploadEventConsumer {
     /// Creates a new `UploadEventConsumer` instance.
+    ///
+    /// Initializes the consumer with the provided configuration, event map, and RPC client.
     ///
     /// # Arguments
     ///
@@ -292,29 +362,36 @@ impl UploadEventConsumer {
     /// }
     /// ```
     pub async fn new(config: EventListenerConfig, event_map: EventMap) -> Self {
+        trace!(
+            "Initializing UploadEventConsumer with http_url: {}",
+            config.http_url
+        );
         let rpc_client = Arc::new(RpcClient::new(config.http_url.clone()));
-        Self {
+        let consumer = Self {
             config,
             event_map,
             rpc_client,
-        }
+        };
+        debug!(
+            "UploadEventConsumer initialized for node: {}",
+            consumer.config.node_pubkey
+        );
+        consumer
     }
 
     /// Starts the event consumer, periodically cleaning up old events.
     ///
-    /// Runs a loop that removes events older than 24 hours from the `EventMap` and sleeps
-    /// to prevent a tight loop.
+    /// Removes events older than 24 hours from the `EventMap` and sleeps to avoid
+    /// excessive CPU usage.
     ///
     /// # Returns
     ///
-    /// * `Result<(), ApiError>` - Returns `Ok(())` if the consumer runs successfully,
-    ///   or an `ApiError` if an error occurs (though none are currently defined).
+    /// * `Result<(), ApiError>` - `Ok(())` if the consumer runs successfully.
     ///
     /// # Workflow
     ///
-    /// 1. **Event Cleanup**: Removes events from the `EventMap` where the timestamp is
-    ///    older than 24 hours.
-    /// 2. **Sleep**: Pauses for 200ms to avoid excessive CPU usage.
+    /// 1. **Event Cleanup**: Removes events with timestamps older than 24 hours.
+    /// 2. **Sleep**: Pauses for 200ms to prevent tight looping.
     ///
     /// # Examples
     ///
@@ -339,26 +416,38 @@ impl UploadEventConsumer {
     /// }
     /// ```
     pub async fn start(&self) -> Result<(), ApiError> {
+        info!(
+            "Starting UploadEventConsumer for program: {}",
+            self.config.program_id
+        );
         loop {
-            // Periodically clean up old events (optional, based on timestamp)
+            trace!("Cleaning up old events");
+            // Clean up events older than 24 hours
+            let before_count = self.event_map.len();
             self.event_map.retain(|_, event| {
                 let age = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs() as i64
                     - event.timestamp;
-                age < 24 * 3600 // Keep events for 24 hours
+                age < 24 * 3600 // Retain events for 24 hours
             });
+            let after_count = self.event_map.len();
+            debug!(
+                "Cleaned up events: {} removed, {} remaining",
+                before_count - after_count,
+                after_count
+            );
 
-            // Prevent tight loop
+            // Sleep to prevent tight loop
+            trace!("Sleeping for 200ms");
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
 
     /// Verifies the validity of an upload event.
     ///
-    /// Checks that the node is registered with the program and that the escrow account
-    /// associated with the event has a non-zero balance, indicating a valid payment.
+    /// Ensures the node is registered and the escrow account has a non-zero balance.
     ///
     /// # Arguments
     ///
@@ -366,24 +455,19 @@ impl UploadEventConsumer {
     ///
     /// # Returns
     ///
-    /// * `Result<(), ApiError>` - Returns `Ok(())` if the event is valid, or an
-    ///   `ApiError` (`NodeNotRegistered` or `PaymentNotVerified`) if verification fails.
+    /// * `Result<(), ApiError>` - `Ok(())` if the event is valid, or `ApiError`
+    ///   (`NodeNotRegistered` or `PaymentNotVerified`) if verification fails.
     ///
     /// # Workflow
     ///
-    /// 1. **Node Registration Check**: Queries the Solana blockchain to verify that the
-    ///    node's account exists and is owned by the program ID.
-    /// 2. **Escrow Account Check**: Derives the escrow PDA using the event's data hash
-    ///    and payer, then checks that the escrow account has a non-zero lamport balance.
-    /// 3. **Slashing Report**: Logs a message if the escrow account is empty, indicating
-    ///    a potential slashing condition for the payer.
+    /// 1. **Node Registration**: Checks if the node's account exists and is owned by the program.
+    /// 2. **Escrow Verification**: Derives the escrow PDA and verifies a non-zero balance.
+    /// 3. **Slashing Report**: Logs a message if the escrow account is empty.
     ///
     /// # Errors
     ///
-    /// - `ApiError::NodeNotRegistered`: If the node's account does not exist or is not
-    ///   owned by the program.
-    /// - `ApiError::PaymentNotVerified`: If the escrow account does not exist or has
-    ///   zero lamports.
+    /// * `ApiError::NodeNotRegistered` - If the node is not registered.
+    /// * `ApiError::PaymentNotVerified` - If the escrow account is empty or does not exist.
     ///
     /// # Examples
     ///
@@ -400,7 +484,7 @@ impl UploadEventConsumer {
     ///         http_url: "https://api.mainnet-beta.solana.com".to_string(),
     ///         program_id: Pubkey::new_unique(),
     ///         node_pubkey: Pubkey::new_unique(),
-    ///         commitment: CommitmentConfig::confirmed Memphis,
+    ///         commitment: CommitmentConfig::confirmed(),
     ///     };
     ///     let event_map: EventMap = Arc::new(DashMap::new());
     ///     let consumer = UploadEventConsumer::new(config, event_map).await;
@@ -418,31 +502,68 @@ impl UploadEventConsumer {
     /// }
     /// ```
     pub async fn verify_event(&self, event: &UploadEvent) -> Result<(), ApiError> {
-        // Verify node is registered
+        trace!(
+            "Verifying upload event for upload_pda: {}",
+            event.upload_pda
+        );
+        // Check node registration
+        trace!(
+            "Checking node registration for pubkey: {}",
+            self.config.node_pubkey
+        );
         let node_account = self
             .rpc_client
             .get_account(&self.config.node_pubkey)
             .await
-            .map_err(|_e| ApiError::NodeNotRegistered)?;
+            .map_err(|e| {
+                error!(
+                    "Failed to fetch node account {}: {}",
+                    self.config.node_pubkey, e
+                );
+                ApiError::NodeNotRegistered
+            })?;
         if node_account.owner != self.config.program_id {
+            error!(
+                "Node {} is not registered with program {}",
+                self.config.node_pubkey, self.config.program_id
+            );
             return Err(ApiError::NodeNotRegistered);
         }
+        debug!("Node {} is registered", self.config.node_pubkey);
 
-        // Verify payment (check escrow account)
+        // Verify escrow account balance
+        trace!("Deriving escrow PDA for data_hash: {}", event.data_hash);
         let escrow_seeds = [b"escrow", event.data_hash.as_bytes(), event.payer.as_ref()];
         let (escrow_pda, _bump) =
             Pubkey::find_program_address(&escrow_seeds, &self.config.program_id);
+        trace!("Fetching escrow account: {}", escrow_pda);
         let escrow_account = self
             .rpc_client
             .get_account(&escrow_pda)
             .await
-            .map_err(|_e| ApiError::PaymentNotVerified)?;
+            .map_err(|e| {
+                error!("Failed to fetch escrow account {}: {}", escrow_pda, e);
+                ApiError::PaymentNotVerified
+            })?;
 
+        // Check for non-zero balance
         if escrow_account.lamports == 0 {
-            println!("Reporting payer {} for slashing: no payment", event.payer);
+            warn!(
+                "Escrow account {} has zero balance for payer {}",
+                escrow_pda, event.payer
+            );
+            info!("Reporting payer {} for slashing: no payment", event.payer);
             return Err(ApiError::PaymentNotVerified);
         }
+        info!(
+            "Verified escrow account {} with balance: {} lamports",
+            escrow_pda, escrow_account.lamports
+        );
 
+        info!(
+            "Upload event verified successfully for upload_pda: {}",
+            event.upload_pda
+        );
         Ok(())
     }
 }

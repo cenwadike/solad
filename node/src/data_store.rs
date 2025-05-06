@@ -3,7 +3,6 @@
 /// storage and maintains metadata for data integrity and tracking. The module supports
 /// storing data with associated metadata (e.g., hash, format, and origin) and marking
 /// data as locally stored.
-
 use crate::db::Database;
 use crate::error::ApiError;
 use async_std::sync::{Arc, Mutex as AsyncMutex};
@@ -20,12 +19,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// program-derived address (PDA).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DataMetadata {
-    key: String,            // Unique identifier for the data
-    format: String,         // Data format (e.g., JSON, binary)
-    hash: String,           // SHA-256 hash of the data for integrity verification
-    timestamp: u64,         // Unix timestamp of when the data was stored
-    origin_pubkey: String,  // Public key of the data originator
-    upload_pda: String,     // Solana program-derived address for upload tracking
+    key: String,           // Unique identifier for the data
+    format: String,        // Data format (e.g., JSON, binary)
+    hash: String,          // SHA-256 hash of the data for integrity verification
+    timestamp: u64,        // Unix timestamp of when the data was stored
+    origin_pubkey: String, // Public key of the data originator
+    upload_pda: String,    // Solana program-derived address for upload tracking
 }
 
 /// Core structure for managing data storage in the decentralized network.
@@ -34,7 +33,7 @@ pub struct DataMetadata {
 /// locally stored keys. It provides methods for storing data with metadata and marking
 /// keys as local.
 pub struct DataStore {
-    pub db: Arc<Database>,                                      // Shared reference to the RocksDB database
+    pub db: Arc<Database>, // Shared reference to the RocksDB database
     pub local_data: Arc<AsyncMutex<std::collections::HashSet<String>>>, // Thread-safe set of locally stored keys
 }
 

@@ -3,7 +3,6 @@
 /// reward claiming for a decentralized storage network. The module defines data structures
 /// for upload and shard information and implements methods to send transactions to the
 /// Solad program.
-
 use anchor_client::{
     solana_sdk::{
         pubkey::Pubkey,
@@ -29,16 +28,16 @@ const STAKE_ESCROW_SEED: &[u8] = b"stake_escrow";
 /// shard count, payment details, and shard assignments.
 #[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct Upload {
-    pub data_hash: String,            // SHA-256 hash of the uploaded data
-    pub size_bytes: u64,              // Size of the data in bytes
-    pub shard_count: u8,              // Number of shards for the data
-    pub node_lamports: u64,           // Lamports allocated per node
-    pub payer: Pubkey,                // Public key of the payer
-    pub upload_time: i64,             // Unix timestamp of the upload
-    pub storage_duration_days: u64,   // Duration for which the data should be stored
-    pub expiry_time: i64,             // Unix timestamp when the storage expires
-    pub current_slot: u64,            // Current Solana slot at upload time
-    pub shards: Vec<ShardInfo>,       // List of shard assignments
+    pub data_hash: String,          // SHA-256 hash of the uploaded data
+    pub size_bytes: u64,            // Size of the data in bytes
+    pub shard_count: u8,            // Number of shards for the data
+    pub node_lamports: u64,         // Lamports allocated per node
+    pub payer: Pubkey,              // Public key of the payer
+    pub upload_time: i64,           // Unix timestamp of the upload
+    pub storage_duration_days: u64, // Duration for which the data should be stored
+    pub expiry_time: i64,           // Unix timestamp when the storage expires
+    pub current_slot: u64,          // Current Solana slot at upload time
+    pub shards: Vec<ShardInfo>,     // List of shard assignments
 }
 
 /// Represents information about a single shard in an upload.
@@ -47,13 +46,13 @@ pub struct Upload {
 /// any oversized reports.
 #[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct ShardInfo {
-    pub shard_id: u8,                   // Unique identifier for the shard
-    pub node_keys: [Pubkey; 3],         // Public keys of nodes assigned to the shard
-    pub verified_count: u8,             // Number of verified nodes
-    pub size_mb: u64,                   // Size of the shard in megabytes
-    pub challenger: Pubkey,             // Public key of the challenger (if any)
+    pub shard_id: u8,                            // Unique identifier for the shard
+    pub node_keys: [Pubkey; 3],                  // Public keys of nodes assigned to the shard
+    pub verified_count: u8,                      // Number of verified nodes
+    pub size_mb: u64,                            // Size of the shard in megabytes
+    pub challenger: Pubkey,                      // Public key of the challenger (if any)
     pub oversized_reports: Vec<OversizedReport>, // Reports of oversized data
-    pub rewarded_nodes: Vec<Pubkey>,    // Nodes that have claimed rewards
+    pub rewarded_nodes: Vec<Pubkey>,             // Nodes that have claimed rewards
 }
 
 /// Represents a report of oversized data for a shard.
@@ -61,8 +60,8 @@ pub struct ShardInfo {
 /// Used to track discrepancies in reported data size for a node.
 #[derive(Debug, BorshDeserialize, BorshSerialize)]
 pub struct OversizedReport {
-    pub node: Pubkey,         // Public key of the node reporting oversized data
-    pub actual_size_mb: u64,  // Reported size in megabytes
+    pub node: Pubkey,        // Public key of the node reporting oversized data
+    pub actual_size_mb: u64, // Reported size in megabytes
 }
 
 /// Anchor client wrapper for interacting with the Solad program.
@@ -71,7 +70,7 @@ pub struct OversizedReport {
 /// methods to register nodes and claim rewards.
 pub struct SoladClient {
     program: Program<Arc<Keypair>>, // Anchor program instance for Solad
-    payer: Arc<Keypair>,           // Keypair for signing transactions
+    payer: Arc<Keypair>,            // Keypair for signing transactions
 }
 
 impl SoladClient {

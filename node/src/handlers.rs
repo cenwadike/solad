@@ -9,7 +9,7 @@
 use actix_web::{web, HttpResponse};
 use async_std::sync::{Arc, Mutex as AsyncMutex};
 use borsh::BorshDeserialize;
-use log::{error, info};
+use log::{debug, error, info, trace, warn};
 use rocksdb::DB;
 use sha2::{Digest, Sha256};
 use solana_client::nonblocking::rpc_client::RpcClient;
@@ -66,11 +66,19 @@ pub async fn get_value(
     db: web::Data<Arc<DB>>,
     query: web::Query<KeyQuery>,
 ) -> Result<HttpResponse, ApiError> {
+    trace!("Received GET request for key: {}", query.key);
     let value = db
         .get(query.key.as_bytes())
-        .map_err(ApiError::Database)?
-        .ok_or(NotFound)?;
+        .map_err(|e| {
+            error!("Database error while retrieving key {}: {}", query.key, e);
+            ApiError::Database(e)
+        })?
+        .ok_or_else(|| {
+            warn!("Key not found: {}", query.key);
+            NotFound
+        })?;
 
+    info!("Successfully retrieved value for key: {}", query.key);
     Ok(HttpResponse::Ok().body(value))
 }
 
@@ -163,11 +171,25 @@ pub async fn set_value(
     config: web::Data<EventListenerConfig>,
     network_manager: web::Data<Arc<AsyncMutex<NetworkManager>>>,
 ) -> Result<HttpResponse, ApiError> {
+    trace!(
+        "Received POST request to set value for key: {}",
+        payload.key
+    );
+    debug!(
+        "Payload details: key={}, hash={}, format={}, upload_pda={}",
+        payload.key, payload.hash, payload.format, payload.upload_pda
+    );
+
     // Verify the provided hash matches the computed SHA-256 hash of the data
     let computed_hash = format!("{:x}", Sha256::digest(payload.data.clone()));
     if computed_hash != payload.hash {
+        warn!(
+            "Hash verification failed: computed={}, provided={}",
+            computed_hash, payload.hash
+        );
         return Err(ApiError::InvalidHash);
     }
+    debug!("Hash verification successful for key: {}", payload.key);
 
     // Check if the node is registered
     let registration_key = "node_registered";
@@ -175,40 +197,60 @@ pub async fn set_value(
         .db
         .inner
         .get(registration_key.as_bytes())
-        .map_err(|e| ApiError::Database(e))?
+        .map_err(|e| {
+            error!("Database error while checking node registration: {}", e);
+            ApiError::Database(e)
+        })?
         .map(|val| val == b"true")
         .unwrap_or(false);
 
     if !is_registered {
+        warn!("Node not registered for key: {}", payload.key);
         return Err(ApiError::NodeNotRegistered);
     }
+    debug!("Node registration verified for key: {}", payload.key);
 
     // Parse the upload PDA from the payload
-    let upload_pda =
-        Pubkey::from_str(&payload.upload_pda).map_err(|e| ApiError::NetworkError(e.into()))?;
+    let upload_pda = Pubkey::from_str(&payload.upload_pda).map_err(|e| {
+        error!("Failed to parse upload PDA {}: {}", payload.upload_pda, e);
+        ApiError::NetworkError(e.into())
+    })?;
+    debug!("Parsed upload PDA: {}", upload_pda);
 
     // Retrieve and remove the upload event from the event map
     let event = event_map
         .remove(&upload_pda)
         .map(|(_, event)| event)
-        .ok_or(ApiError::PaymentNotVerified)?;
+        .ok_or_else(|| {
+            warn!("No upload event found for PDA: {}", upload_pda);
+            ApiError::PaymentNotVerified
+        })?;
+    debug!("Retrieved upload event for PDA: {}", upload_pda);
 
     // Verify the event's data hash matches the provided hash
     if event.data_hash != payload.hash {
-        event_map.insert(upload_pda, event);
+        event_map.insert(upload_pda, event.clone());
+        warn!(
+            "Event data hash mismatch: event_hash={}, provided_hash={}",
+            event.data_hash, payload.hash
+        );
         return Err(ApiError::InvalidHash);
     }
+    debug!("Event data hash verified for PDA: {}", upload_pda);
 
     // Initialize and use UploadEventConsumer to verify the event
+    trace!("Initializing UploadEventConsumer for event verification");
     let consumer =
         UploadEventConsumer::new(config.get_ref().clone(), event_map.get_ref().clone()).await;
 
-    consumer
-        .verify_event(&event)
-        .await
-        .map_err(|_| ApiError::PaymentNotVerified)?;
+    consumer.verify_event(&event).await.map_err(|e| {
+        error!("Event verification failed for PDA {}: {}", upload_pda, e);
+        ApiError::PaymentNotVerified
+    })?;
+    info!("Event verification successful for PDA: {}", upload_pda);
 
     // Store the data in the DataStore
+    trace!("Storing data in DataStore for key: {}", payload.key);
     data_store
         .store_data(
             &payload.key,
@@ -217,12 +259,20 @@ pub async fn set_value(
             config.node_pubkey,
             &payload.upload_pda,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            error!("Failed to store data for key {}: {}", payload.key, e);
+            e
+        })?;
+    info!("Data stored successfully for key: {}", payload.key);
 
     // Mark the key as locally stored
+    trace!("Marking key as locally stored: {}", payload.key);
     data_store.mark_as_local(&payload.key).await;
+    debug!("Key marked as locally stored: {}", payload.key);
 
     // Spawn a task to gossip the data to the network
+    trace!("Spawning task to gossip data for key: {}", payload.key);
     async_std::task::spawn({
         let network_manager = network_manager.clone();
         let key = payload.key.clone();
@@ -231,6 +281,7 @@ pub async fn set_value(
         let origin_pubkey = config.node_pubkey;
         let upload_pda = payload.upload_pda.clone();
         async move {
+            trace!("Acquiring network manager lock for gossiping key: {}", key);
             let mut network_manager = network_manager.lock().await;
             network_manager
                 .gossip_data(&key, &data, origin_pubkey, &upload_pda, &format)
@@ -240,37 +291,56 @@ pub async fn set_value(
     });
 
     // Load the Solana admin private key from environment
+    trace!("Loading Solana admin private key");
     let payer =
         Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
+            error!("Failed to load SOLANA_ADMIN_PRIVATE_KEY: {}", e);
             ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
         })?);
     let payer = Arc::new(payer);
+    debug!("Solana admin private key loaded successfully");
 
     // Initialize SoladClient for blockchain interactions
+    trace!("Initializing SoladClient");
     let solad_client = SoladClient::new(&config.http_url, payer.clone(), config.program_id)
         .await
         .map_err(|e| {
+            error!("Failed to initialize SoladClient: {}", e);
             ApiError::NetworkError(anyhow::anyhow!("Failed to initialize SoladClient: {}", e))
         })?;
+    debug!("SoladClient initialized successfully");
 
     // Fetch the upload account data from Solana
+    trace!("Fetching upload account data for PDA: {}", upload_pda);
     let rpc_client = RpcClient::new(config.http_url.clone());
     let account_data = rpc_client
         .get_account_data(&upload_pda)
         .await
         .map_err(|e| {
+            error!(
+                "Failed to fetch Upload account for PDA {}: {}",
+                upload_pda, e
+            );
             ApiError::NetworkError(anyhow::anyhow!("Failed to fetch Upload account: {}", e))
         })?;
+    debug!("Fetched upload account data for PDA: {}", upload_pda);
 
     // Deserialize the upload account
+    trace!("Deserializing upload account for PDA: {}", upload_pda);
     let upload_account = Upload::deserialize(&mut account_data.as_slice()).map_err(|e| {
+        error!(
+            "Failed to deserialize Upload account for PDA {}: {}",
+            upload_pda, e
+        );
         ApiError::NetworkError(anyhow::anyhow!(
             "Failed to deserialize Upload account: {}",
             e
         ))
     })?;
+    debug!("Deserialized upload account for PDA: {}", upload_pda);
 
     // Determine the shard ID for the node
+    trace!("Determining shard ID for node: {}", config.node_pubkey);
     let node_pubkey = config.node_pubkey;
     let shard_id = upload_account
         .shards
@@ -284,16 +354,29 @@ pub async fn set_value(
             }
         })
         .ok_or_else(|| {
+            error!(
+                "Node {} is not assigned to any shard for upload PDA {}",
+                node_pubkey, upload_pda
+            );
             ApiError::NetworkError(anyhow::anyhow!(
                 "Node {} is not assigned to any shard for upload PDA {}",
                 node_pubkey,
                 upload_pda
             ))
         })?;
+    debug!(
+        "Determined shard ID: {} for node: {}",
+        shard_id, node_pubkey
+    );
 
     // Derive the storage config public key
+    trace!("Deriving storage config public key");
     let (storage_config_pubkey, _storage_config_bump) =
         Pubkey::find_program_address(&[b"storage_config", payer.pubkey().as_ref()], &contract::ID);
+    debug!(
+        "Derived storage config public key: {}",
+        storage_config_pubkey
+    );
 
     // Log the reward claim initiation
     info!(
@@ -301,6 +384,12 @@ pub async fn set_value(
         config.node_pubkey, payload.upload_pda
     );
     let treasury_pubkey = Pubkey::new_unique();
+    trace!(
+        "Claiming rewards for hash: {}, shard_id: {}, upload_pda: {}",
+        payload.hash,
+        shard_id,
+        upload_pda
+    );
     let signature = solad_client
         .claim_rewards(
             payload.hash.clone(),
@@ -324,5 +413,6 @@ pub async fn set_value(
         node_pubkey, upload_pda, shard_id, signature
     );
 
+    info!("Data set successfully for key: {}", payload.key);
     Ok(HttpResponse::Ok().body("Data set successfully"))
 }
