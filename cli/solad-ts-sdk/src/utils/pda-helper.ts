@@ -50,4 +50,25 @@ export class PDAHelper {
       this.programId
     )[0];
   }
+
+  // Data Ops: user upload keys
+  uploadKeys(user: PublicKey) {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("upload_keys"), user.toBuffer()],
+      this.programId
+    );
+  }
+
+  // Data Ops: replacement
+  replacement(dataHash: string, nodePda: PublicKey) {
+    return PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("replacement"),
+        nodePda.toBuffer(),
+        Buffer.from(dataHash),
+        Buffer.from([0]),
+      ],
+      this.programId
+    );
+  }
 }

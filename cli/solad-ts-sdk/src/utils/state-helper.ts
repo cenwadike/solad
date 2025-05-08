@@ -1,12 +1,12 @@
 import { PublicKey } from "@solana/web3.js";
 import { PDAHelper } from "./pda-helper";
 import { Program } from "@coral-xyz/anchor";
+import { StorageConfigParams } from "../types";
 
 export class StateHelper {
   constructor(private programId: PublicKey) {}
 
-  async getStorageConfig(program: Program): Promise<{ treasury: any }> {
-    // TODO: Import Contract type in arg [program: Program<Contract>], then removed typed return type.
+  async getStorageConfig(program: Program): Promise<StorageConfigParams> {
     const pdas = new PDAHelper(this.programId);
 
     return (program.account as any).storageConfig.fetch(pdas.storageConfig());
