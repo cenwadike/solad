@@ -1,1 +1,6 @@
 /target
+Cargo.lock
+.env
+/logs
+/test-ledger
+/mydb
