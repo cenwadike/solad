@@ -1,0 +1,4 @@
+
+> @ledgerhq/hw-transport-webhid@6.30.0 build /home/runner/work/ledger-live/ledger-live/libs/ledgerjs/packages/hw-transport-webhid
+> tsc && tsc -m ES6 --outDir lib-es
+

@@ -1,0 +1,80 @@
+{
+  "name": "@toruslabs/metadata-helpers",
+  "version": "5.1.0",
+  "description": "Helper methods for metadata",
+  "main": "dist/metadataHelpers.cjs.js",
+  "module": "dist/metadataHelpers.esm.js",
+  "unpkg": "dist/metadataHelpers.umd.min.js",
+  "jsdelivr": "dist/metadataHelpers.umd.min.js",
+  "types": "dist/types/index.d.ts",
+  "scripts": {
+    "start": "torus-scripts start",
+    "build": "torus-scripts build",
+    "release": "torus-scripts release",
+    "lint:ts": "eslint --fix 'src/**/*.ts'",
+    "prepack": "npm run build",
+    "test": "mocha ./test/test.ts",
+    "prepare": "husky"
+  },
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "@babel/runtime": "7.x"
+  },
+  "dependencies": {
+    "@toruslabs/eccrypto": "^4.0.0",
+    "@toruslabs/http-helpers": "^6.1.0",
+    "elliptic": "^6.5.5",
+    "ethereum-cryptography": "^2.1.3",
+    "json-stable-stringify": "^1.1.1"
+  },
+  "devDependencies": {
+    "@babel/register": "^7.23.7",
+    "@toruslabs/config": "^2.0.2",
+    "@toruslabs/eslint-config-node": "^3.2.0",
+    "@toruslabs/torus-scripts": "^5.3.0",
+    "@types/elliptic": "^6.4.18",
+    "@types/json-stable-stringify": "^1.0.36",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.25",
+    "eslint": "^8.57.0",
+    "husky": "^9.0.11",
+    "lint-staged": "^15.2.2",
+    "mocha": "^10.3.0",
+    "prettier": "^3.2.5",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.2"
+  },
+  "author": "Torus Labs",
+  "license": "MIT",
+  "lint-staged": {
+    "!(*d).{js,ts}": [
+      "eslint --cache --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/torusresearch/metadata-helpers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/torusresearch/metadata-helpers/issues"
+  },
+  "homepage": "https://github.com/torusresearch/metadata-helpers#readme",
+  "keywords": [
+    "metadata-helpers",
+    "torus-direct-auth",
+    "torus nodes",
+    "torus-embed",
+    "direct auth"
+  ],
+  "engines": {
+    "node": ">=18.x",
+    "npm": ">=9.x"
+  }
+}
