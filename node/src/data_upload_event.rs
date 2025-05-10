@@ -14,7 +14,6 @@ use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-
 use crate::error::ApiError;
 
 /// Represents an upload event emitted by the Solana program.

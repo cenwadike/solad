@@ -10,7 +10,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 const PROGRAM_ID = new PublicKey('4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp');
 const RPC_URL = 'https://api.devnet.solana.com';
 const connection = new Connection(RPC_URL);
-
+const NODE_API_URL = 'http://127.0.0.1:8080/api/set';
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -55,8 +55,12 @@ const FileUploader = () => {
         const arrayBuffer = reader.result;
         const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
         const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const dataHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
-  
+        const dataHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        // Convert ArrayBuffer to base64
+        const binary = new Uint8Array(arrayBuffer);
+        const base64Data = btoa(String.fromCharCode(...binary));
+
         const size_bytes = file.size;
         const shard_count = 1;
         const storage_duration_days = 1;
@@ -69,13 +73,34 @@ const FileUploader = () => {
         };
   
         try {
-          await uploadToSolana({
+          // Upload to Solana
+          const signature = await uploadToSolana({
             wallet,
             dataHash,
             size_bytes,
             shard_count,
             storage_duration_days
           });
+
+          // Derive upload_pda
+          const uploadPda = PublicKey.findProgramAddressSync(
+            [
+              Buffer.from('upload'),
+              Buffer.from(dataHash.slice(0, 32)),
+              wallet.publicKey.toBuffer(),
+            ],
+            PROGRAM_ID
+          )[0].toBase58();
+
+          // Upload to node
+          await uploadToNode({
+            key: file.name,
+            data: base64Data,
+            hash: dataHash,
+            format: 'binary',
+            upload_pda: uploadPda,
+          });
+          
           setFiles((prev) => {
             const updated = [fileData, ...prev];
             localStorage.setItem('uploadedFiles', JSON.stringify(updated));
@@ -83,13 +108,14 @@ const FileUploader = () => {
           });
         } catch (err) {
           console.error("Upload error:", err);
-          alert("❌ Failed to upload to Solana.");
+          alert(`❌ Failed to upload: ${err.message}`);
+        } finally {
+          clearInterval(interval);
+          setProgress(100);
         }
       };
     }
   };
-  
-  
   
   const uploadToSolana = async ({ wallet, dataHash, size_bytes, shard_count, storage_duration_days }) => {
     if (!wallet?.publicKey) throw new Error("Wallet not connected");
@@ -122,45 +148,38 @@ const FileUploader = () => {
     const sig = await connection.sendRawTransaction(signed.serialize());
     await connection.confirmTransaction(sig);
     return sig;
+  };
 
-   
+  // Function to upload data to the node
+  const uploadToNode = async (payload) => {
+    try {
+      const response = await fetch(NODE_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error: ${response.status}`);
+      }
+
+      const text = await response.text();
+      if (text !== 'Data set successfully') {
+        throw new Error('Unexpected response from node');
+      }
+    } catch (err) {
+      console.error('Node upload error:', err);
+      throw new Error(`Failed to upload to node: ${err.message}`);
+    }
   };
 
   const handleDrop = async (event) => {
     event.preventDefault();
     const droppedFiles = event.dataTransfer.files;
     await handleFiles(droppedFiles);
-  };
-
-  const handleFils = async (fileList) => {
-    for (let file of fileList) {
-      setProgress(0);
-      const interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            return 100;
-          }
-          return prev + 5;
-        }, 20);
-      });
-
-      const hash = generateMockHash(file);
-
-      const fileData = {
-        name: file.name,
-        size: file.size,
-        formattedSize: formatBytes(file.size),
-        hash,
-      };
-
-      await new Promise((resolve) => setTimeout(resolve, 400)); // simulate upload
-      setFiles((prev) => {
-        const updated = [fileData, ...prev];
-        localStorage.setItem('uploadedFiles', JSON.stringify(updated));
-        return updated;
-      });
-    }
   };
 
   const handleFileInput = (e) => {
@@ -197,55 +216,53 @@ const FileUploader = () => {
   };
 
   const [showStreamModal, setShowStreamModal] = useState(false);
-const [streamConfig, setStreamConfig] = useState({
-  source: 'Direct',
-  type: 'Transaction Logs',
-  duration: '',
-});
-
-const handleStreamStart = () => {
-  setShowStreamModal(false);
-
-  // Simulate streaming event
-  const mockStreamData = {
-    name: `${streamConfig.type} Stream`,
-    size: Math.floor(Math.random() * 50000 + 5000),
-    formattedSize: formatBytes(Math.floor(Math.random() * 50000 + 5000)),
-    hash: generateMockHash({
-      name: `${streamConfig.type}-${Date.now()}`,
-      size: 1,
-    }),
-  };
-
-  setFiles((prev) => {
-    const updated = [mockStreamData, ...prev];
-    localStorage.setItem('uploadedFiles', JSON.stringify(updated));
-    return updated;
+  const [streamConfig, setStreamConfig] = useState({
+    source: 'Direct',
+    type: 'Transaction Logs',
+    duration: '',
   });
 
-  alert(`🔄 Streaming started for ${streamConfig.duration} using ${streamConfig.source}`);
-};
+  const handleStreamStart = () => {
+    setShowStreamModal(false);
 
+    // Simulate streaming event
+    const mockStreamData = {
+      name: `${streamConfig.type} Stream`,
+      size: Math.floor(Math.random() * 50000 + 5000),
+      formattedSize: formatBytes(Math.floor(Math.random() * 50000 + 5000)),
+      hash: generateMockHash({
+        name: `${streamConfig.type}-${Date.now()}`,
+        size: 1,
+      }),
+    };
+
+    setFiles((prev) => {
+      const updated = [mockStreamData, ...prev];
+      localStorage.setItem('uploadedFiles', JSON.stringify(updated));
+      return updated;
+    });
+
+    alert(`🔄 Streaming started for ${streamConfig.duration} using ${streamConfig.source}`);
+  };
 
   return (
     <div className="max-w-4xl mx-auto mt-10 p-6 bg-gray-800 rounded-2xl shadow-xl">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-bold"> Upload File</h2>
         <div className="flex justify-between items-center mb-4">
-  
-  <button
-    onClick={() => setShowStreamModal(true)}
-    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-500 transition"
-  >
-    Start Data Stream
-  </button>
-</div>
+          <button
+            onClick={() => setShowStreamModal(true)}
+            className="bg-blue-600 font-medium text-white px-4 py-2 rounded-lg hover:bg-blue-500 transition"
+          >
+            Start Data Stream
+          </button>
+        </div>
 
         <button
           onClick={openModal}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg"
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg"
         >
-          Query Hash
+          Retrieve Data
         </button>
       </div>
 
@@ -353,84 +370,81 @@ const handleStreamStart = () => {
         </div>
       )}
 
-{showStreamModal && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-gray-900 p-6 rounded-xl w-full max-w-md shadow-xl">
-      <h3 className="text-lg font-bold mb-4">🔌 Stream Blockchain Data</h3>
+      {showStreamModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 p-6 rounded-xl w-full max-w-md shadow-xl">
+            <h3 className="text-lg font-bold mb-4">🔌 Stream Blockchain Data</h3>
 
-      <label className="block mb-2 text-sm">Source</label>
-      <select
-        value={streamConfig.source}
-        onChange={(e) => setStreamConfig({ ...streamConfig, source: e.target.value })}
-        className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded"
-      >
-        <option>Geyser</option>
-        <option>Direct</option>
-      </select>
+            <label className="block mb-2 text-sm">Source</label>
+            <select
+              value={streamConfig.source}
+              onChange={(e) => setStreamConfig({ ...streamConfig, source: e.target.value })}
+              className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded"
+            >
+              <option>Geyser</option>
+              <option>Direct</option>
+            </select>
 
-      <label className="block mb-2 text-sm">Event Type</label>
-      <select
-        value={streamConfig.type}
-        onChange={(e) => setStreamConfig({ ...streamConfig, type: e.target.value })}
-        className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded"
-      >
-        <option>Transaction Logs</option>
-        <option>Slot Events</option>
-        <option>Vote Events</option>
-        <option>Block Events</option>
-      </select>
+            <label className="block mb-2 text-sm">Event Type</label>
+            <select
+              value={streamConfig.type}
+              onChange={(e) => setStreamConfig({ ...streamConfig, type: e.target.value })}
+              className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded"
+            >
+              <option>Transaction Logs</option>
+              <option>Slot Events</option>
+              <option>Vote Events</option>
+              <option>Block Events</option>
+            </select>
 
-      {/* Show Program and Event only for Transaction Logs */}
-      {streamConfig.type === 'Transaction Logs' && (
-        <>
-          <label className="block mb-2 text-sm">Program</label>
-          <input
-            type="text"
-            value={streamConfig.program || ''}
-            onChange={(e) => setStreamConfig({ ...streamConfig, program: e.target.value })}
-            className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded text-white"
-            placeholder="Enter program ID"
-          />
+            {streamConfig.type === 'Transaction Logs' && (
+              <>
+                <label className="block mb-2 text-sm">Program</label>
+                <input
+                  type="text"
+                  value={streamConfig.program || ''}
+                  onChange={(e) => setStreamConfig({ ...streamConfig, program: e.target.value })}
+                  className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded text-white"
+                  placeholder="Enter program ID"
+                />
 
-          <label className="block mb-2 text-sm">Event</label>
-          <input
-            type="text"
-            value={streamConfig.event || ''}
-            onChange={(e) => setStreamConfig({ ...streamConfig, event: e.target.value })}
-            className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded text-white"
-            placeholder="Enter event name"
-          />
-        </>
+                <label className="block mb-2 text-sm">Event</label>
+                <input
+                  type="text"
+                  value={streamConfig.event || ''}
+                  onChange={(e) => setStreamConfig({ ...streamConfig, event: e.target.value })}
+                  className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded text-white"
+                  placeholder="Enter event name"
+                />
+              </>
+            )}
+
+            <label className="block mb-2 text-sm">Duration (mins)</label>
+            <input
+              type="number"
+              value={streamConfig.duration}
+              onChange={(e) => setStreamConfig({ ...streamConfig, duration: e.target.value })}
+              className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded text-white"
+              placeholder="e.g. 30"
+            />
+
+            <div className="flex justify-between">
+              <button
+                onClick={() => setShowStreamModal(false)}
+                className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStreamStart}
+                className="px-4 py-2 bg-green-600 rounded hover:bg-green-500"
+              >
+                Start Streaming
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-
-      <label className="block mb-2 text-sm">Duration (mins)</label>
-      <input
-        type="number"
-        value={streamConfig.duration}
-        onChange={(e) => setStreamConfig({ ...streamConfig, duration: e.target.value })}
-        className="w-full p-2 mb-4 bg-gray-800 border border-gray-700 rounded text-white"
-        placeholder="e.g. 30"
-      />
-
-      <div className="flex justify-between">
-        <button
-          onClick={() => setShowStreamModal(false)}
-          className="px-4 py-2 bg-gray-700 rounded hover:bg-gray-600"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleStreamStart}
-          className="px-4 py-2 bg-green-600 rounded hover:bg-green-500"
-        >
-          Start Streaming
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-
     </div>
   );
 };
