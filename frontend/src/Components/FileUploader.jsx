@@ -7,9 +7,9 @@ import {
 } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 
-const PROGRAM_ID = new PublicKey('4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp');
-const RPC_URL = 'https://api.devnet.solana.com';
-const connection = new Connection(RPC_URL);
+const PROGRAM_ID = new PublicKey(import.meta.env.VITE_SOLANA_PROGRAM_ID);
+const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL;
+const connection = new Connection(RPC_URL, 'confirmed');
 
 
 function formatBytes(bytes) {
