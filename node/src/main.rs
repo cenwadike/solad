@@ -33,7 +33,7 @@ use strip_ansi_escapes;
 use crate::data_store::DataStore;
 use crate::data_upload_event::{EventListenerConfig, UploadEvent, UploadEventListener};
 use crate::db::Database;
-use crate::handlers::{health, get_value, set_value};
+use crate::handlers::{get_value, health, set_value};
 use crate::network_manager::{NetworkManager, PeerInfo};
 
 mod data_store;
@@ -167,8 +167,8 @@ async fn setup_network_manager(
         .as_secs();
 
     // Load NODE_SOLANA_PRIVKEY as a Pubkey for peers
-    let node_pubkey_str = env::var("NODE_SOLANA_PRIVKEY")
-        .expect("NODE_SOLANA_PRIVKEY environment variable not set");
+    let node_pubkey_str =
+        env::var("NODE_SOLANA_PRIVKEY").expect("NODE_SOLANA_PRIVKEY environment variable not set");
     let node_pubkey = Keypair::from_base58_string(&node_pubkey_str).pubkey();
 
     // Peers (using NODE_SOLANA_PRIVKEY as pubkey)
@@ -318,7 +318,8 @@ async fn main() -> std::io::Result<()> {
         info!("HTTP_URL not set, using default: https://api.mainnet-beta.solana.com");
         "https://api.mainnet-beta.solana.com".to_string()
     });
-    let node_pubkey_str = env::var("NODE_SOLANA_PRIVKEY").expect("NODE_SOLANA_PRIVKEY environment variable not set");
+    let node_pubkey_str =
+        env::var("NODE_SOLANA_PRIVKEY").expect("NODE_SOLANA_PRIVKEY environment variable not set");
     let node_pubkey = Keypair::from_base58_string(&node_pubkey_str).pubkey();
 
     let config = EventListenerConfig {
@@ -328,7 +329,10 @@ async fn main() -> std::io::Result<()> {
         node_pubkey,
         commitment: CommitmentConfig::confirmed(),
     };
-    info!("Configured EventListenerConfig with node_pubkey: {}", node_pubkey);
+    info!(
+        "Configured EventListenerConfig with node_pubkey: {}",
+        node_pubkey
+    );
 
     // Start event listener
     let listener_config = config.clone();

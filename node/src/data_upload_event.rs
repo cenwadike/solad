@@ -13,7 +13,7 @@ use solana_client::{
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{timeout, Duration as TokioDuration};
+use tokio::time::timeout;
 
 use crate::error::ApiError;
 
@@ -220,7 +220,7 @@ impl UploadEventListener {
             "Configuring WebSocket subscription with filter for program: {}",
             self.config.program_id
         );
-    
+
         let (_sub, stream) = solana_client::pubsub_client::PubsubClient::logs_subscribe(
             &self.config.ws_url,
             filter,
@@ -234,15 +234,11 @@ impl UploadEventListener {
             "WebSocket subscription established for program: {}",
             self.config.program_id
         );
-    
+
         // Process incoming log messages
         loop {
             trace!("Attempting to receive log message");
-            match timeout(Duration::from_millis(500), async {
-                stream.try_recv()
-            })
-            .await
-            {
+            match timeout(Duration::from_millis(500), async { stream.try_recv() }).await {
                 Ok(Ok(response)) => {
                     trace!("Received log response");
                     if let Err(e) = self.process_log_response(response).await {
@@ -263,7 +259,7 @@ impl UploadEventListener {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
-    
+
     /// Processes a log response from the Solana subscription.
     ///
     /// Parses transaction logs for "Program data:" entries, extracts upload events,
