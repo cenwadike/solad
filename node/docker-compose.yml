@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: solad-node
+    container_name: node1
+    ports:
+      - "8081:8080"
+      - "4001:4001"
+    env_file:
+      - node1.env
+    environment:
+      - WS_URL=ws://host.docker.internal:8900
+      - HTTP_URL=http://host.docker.internal:8899
+      - SEED_NODES=/ip4/node2/tcp/4001,/ip4/node3/tcp/4001
+      - SOLANA_CLUSTER=local
+    volumes:
+      - ./data/node1/mydb:/usr/src/app/data/mydb
+      - ./data/node1/logs:/usr/src/app/data/logs
+    networks:
+      - solad-network
+    depends_on:
+      - node2
+      - node3
+
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: solad-node
+    container_name: node2
+    ports:
+      - "8082:8080"
+      - "4002:4001"
+    env_file:
+      - node2.env
+    environment:
+      - WS_URL=ws://host.docker.internal:8900
+      - HTTP_URL=http://host.docker.internal:8899
+      - SEED_NODES=/ip4/node1/tcp/4001,/ip4/node3/tcp/4001
+      - SOLANA_CLUSTER=local
+    volumes:
+      - ./data/node2/mydb:/usr/src/app/data/mydb
+      - ./data/node2/logs:/usr/src/app/data/logs
+    networks:
+      - solad-network
+
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: solad-node
+    container_name: node3
+    ports:
+      - "8083:8080"
+      - "4003:4001"
+    env_file:
+      - node3.env
+    environment:
+      - WS_URL=ws://host.docker.internal:8900
+      - HTTP_URL=http://host.docker.internal:8899
+      - SEED_NODES=/ip4/node1/tcp/4001,/ip4/node2/tcp/4001
+      - SOLANA_CLUSTER=local
+    volumes:
+      - ./data/node3/mydb:/usr/src/app/data/mydb
+      - ./data/node3/logs:/usr/src/app/data/logs
+    networks:
+      - solad-network
+
+networks:
+  solad-network:
+    driver: bridge
+    

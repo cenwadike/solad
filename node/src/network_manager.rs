@@ -117,13 +117,12 @@ impl NetworkManager {
         debug!("Verified local node pubkey: {}", local_pubkey);
 
         // Load Solana payer keypair from environment
-        trace!("Loading Solana admin private key");
-        let payer =
-            Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
-                error!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e);
-                ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
-            })?);
-        debug!("Solana admin private key loaded successfully");
+        trace!("Loading Solana node private key");
+        let payer = Keypair::from_base58_string(&env::var("NODE_SOLANA_PRIVKEY").map_err(|e| {
+            error!("NODE_SOLANA_PRIVKEY not set: {}", e);
+            ApiError::NetworkError(anyhow::anyhow!("NODE_SOLANA_PRIVKEY not set: {}", e))
+        })?);
+        debug!("Solana node private key loaded successfully");
 
         // Initialize Solad client for program interactions
         trace!("Initializing SoladClient for RPC URL: {}", rpc_client.url());

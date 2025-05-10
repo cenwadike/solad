@@ -1,0 +1,15 @@
+{"level":"INFO","message":"🚀 Starting decentralized storage node","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"Initialized RocksDB at ./mydb","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"Initialized DataStore","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"Initialized event map","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"Configured EventListenerConfig with node_pubkey: GLd6B4X1yRdagGhQDRQTV9wsh1LqBP33n4ZLnv9gzhcx","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"Initializing NetworkManager for peer: 12D3KooWQDz9z96UFU6ZYbSBksUvQofJEU1khrV7yTMFfCCSSLk1","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"Starting UploadEventListener for program: 4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"WebSocket subscription established for program: 4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp","timestamp":"2025-05-10 08:10:50"}
+{"level":"INFO","message":"receive error: WsError(Protocol(ResetWithoutClosingHandshake))","timestamp":"2025-05-10 08:52:29"}
+{"level":"INFO","message":"websocket - exited receive loop","timestamp":"2025-05-10 08:52:29"}
+{"level":"ERROR","message":"WebSocket subscription disconnected","timestamp":"2025-05-10 08:52:29"}
+{"level":"WARN","message":"unable to unsubscribe from websocket","timestamp":"2025-05-10 08:52:29"}
+{"level":"ERROR","message":"Event listener failed: Log subscription failed","timestamp":"2025-05-10 08:52:29"}
+{"level":"INFO","message":"Starting UploadEventConsumer for program: 4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp","timestamp":"2025-05-10 08:52:29"}
+{"level":"ERROR","message":"Failed to fetch local account for pubkey GLd6B4X1yRdagGhQDRQTV9wsh1LqBP33n4ZLnv9gzhcx: RPC request error: cluster version query failed: error sending request for url (http://host.docker.internal:8899/): operation timed out","timestamp":"2025-05-10 08:52:29"}

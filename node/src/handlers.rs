@@ -26,6 +26,39 @@ use crate::models::{KeyQuery, KeyValuePayload};
 use crate::network_manager::NetworkManager;
 use crate::solad_client::{SoladClient, Upload};
 
+/// Performs a health check on the server.
+///
+/// This endpoint verifies that the application is running and responsive. It returns
+/// a simple HTTP 200 response to indicate the service is healthy. No additional
+/// checks or dependencies are queried in this basic implementation.
+///
+/// # Returns
+///
+/// * `Result<HttpResponse, ApiError>` - On success, returns an HTTP 200 response
+///   with no body. On failure, returns an `ApiError` if an internal error occurs
+///   (though this is unlikely in this minimal implementation).
+///
+/// # Examples
+///
+/// ```http
+/// GET /health
+/// ```
+///
+/// Response (success):
+/// ```http
+/// HTTP/1.1 200 OK
+/// ```
+///
+/// Response (failure, hypothetical):
+/// ```http
+/// HTTP/1.1 500 Internal Server Error
+/// Content-Type: application/json
+/// {"error": "InternalServerError"}
+/// ```
+pub async fn health() -> Result<HttpResponse, ApiError> {
+    Ok(HttpResponse::Ok().into())
+}
+
 /// Retrieves a value from the RocksDB database based on the provided key query.
 ///
 /// This endpoint fetches data stored under a specified key, returning it in the HTTP
@@ -290,15 +323,14 @@ pub async fn set_value(
         }
     });
 
-    // Load the Solana admin private key from environment
-    trace!("Loading Solana admin private key");
-    let payer =
-        Keypair::from_base58_string(&env::var("SOLANA_ADMIN_PRIVATE_KEY").map_err(|e| {
-            error!("Failed to load SOLANA_ADMIN_PRIVATE_KEY: {}", e);
-            ApiError::NetworkError(anyhow::anyhow!("SOLANA_ADMIN_PRIVATE_KEY not set: {}", e))
-        })?);
+    // Load the Solana node private key from environment
+    trace!("Loading Solana node private key");
+    let payer = Keypair::from_base58_string(&env::var("NODE_SOLANA_PRIVKEY").map_err(|e| {
+        error!("Failed to load NODE_SOLANA_PRIVKEY: {}", e);
+        ApiError::NetworkError(anyhow::anyhow!("NODE_SOLANA_PRIVKEY not set: {}", e))
+    })?);
     let payer = Arc::new(payer);
-    debug!("Solana admin private key loaded successfully");
+    debug!("Solana node private key loaded successfully");
 
     // Initialize SoladClient for blockchain interactions
     trace!("Initializing SoladClient");

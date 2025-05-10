@@ -22,17 +22,18 @@ use serde_json::json;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Keypair;
+use solana_sdk::signer::Signer;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-use std::str::FromStr;
 use strip_ansi_escapes;
 
 use crate::data_store::DataStore;
 use crate::data_upload_event::{EventListenerConfig, UploadEvent, UploadEventListener};
 use crate::db::Database;
-use crate::handlers::{get_value, set_value};
+use crate::handlers::{health, get_value, set_value};
 use crate::network_manager::{NetworkManager, PeerInfo};
 
 mod data_store;
@@ -138,7 +139,7 @@ fn setup_logging() -> std::io::Result<()> {
 ///    HTTP URL from the config.
 /// 2. **Keypair Generation**: Generates an Ed25519 keypair for libp2p authentication.
 /// 3. **Peer Setup**: Creates a placeholder peer with a public key from the
-///    SOLANA_ADMIN_PRIVATE_KEY environment variable, multiaddress, and peer ID.
+///    NODE_SOLANA_PRIVKEY environment variable, multiaddress, and peer ID.
 /// 4. **NetworkManager Initialization**: Constructs a `NetworkManager` with the generated
 ///    keypair, peer list, node public key, RPC client, database, and program ID.
 /// 5. **Gossip Task**: Spawns a task to run `receive_gossiped_data` on the `NetworkManager`,
@@ -148,7 +149,7 @@ fn setup_logging() -> std::io::Result<()> {
 ///
 /// Panics if:
 /// - The `NetworkManager` initialization fails.
-/// - The `SOLANA_ADMIN_PRIVATE_KEY` environment variable is not a valid `Pubkey`.
+/// - The `NODE_SOLANA_PRIVKEY` environment variable is not a valid `Pubkey`.
 /// - The placeholder multiaddress is invalid.
 async fn setup_network_manager(
     config: &EventListenerConfig,
@@ -165,19 +166,33 @@ async fn setup_network_manager(
         .unwrap()
         .as_secs();
 
-    // Load SOLANA_ADMIN_PRIVATE_KEY as a Pubkey for peers
-    let admin_pubkey_str = env::var("SOLANA_ADMIN_PRIVATE_KEY")
-        .expect("SOLANA_ADMIN_PRIVATE_KEY environment variable not set");
-    let admin_pubkey = Pubkey::from_str(&admin_pubkey_str)
-        .expect("SOLANA_ADMIN_PRIVATE_KEY is not a valid Pubkey");
+    // Load NODE_SOLANA_PRIVKEY as a Pubkey for peers
+    let node_pubkey_str = env::var("NODE_SOLANA_PRIVKEY")
+        .expect("NODE_SOLANA_PRIVKEY environment variable not set");
+    let node_pubkey = Keypair::from_base58_string(&node_pubkey_str).pubkey();
 
-    // Placeholder peers (using SOLANA_ADMIN_PRIVATE_KEY as pubkey)
-    let peers = vec![PeerInfo {
-        pubkey: admin_pubkey,
-        multiaddr: "/ip4/127.0.0.1/tcp/4001".parse().expect("Valid multiaddr"),
-        peer_id: PeerId::from_public_key(&identity::Keypair::generate_ed25519().public()),
-        last_seen: now,
-    }];
+    // Peers (using NODE_SOLANA_PRIVKEY as pubkey)
+    let seed_nodes = env::var("SEED_NODES").unwrap_or_default();
+    let peers = if seed_nodes.is_empty() {
+        // Standalone mode with placeholder peer
+        vec![PeerInfo {
+            pubkey: node_pubkey,
+            multiaddr: "/ip4/127.0.0.1/tcp/4001".parse().expect("Valid multiaddr"),
+            peer_id: PeerId::from_public_key(&identity::Keypair::generate_ed25519().public()),
+            last_seen: now,
+        }]
+    } else {
+        // Parse SEED_NODES (e.g., "/ip4/1.2.3.4/tcp/4001,/ip4/5.6.7.8/tcp/4001")
+        seed_nodes
+            .split(',')
+            .map(|addr| PeerInfo {
+                pubkey: node_pubkey,
+                multiaddr: addr.parse().expect("Valid multiaddr"),
+                peer_id: PeerId::from_public_key(&identity::Keypair::generate_ed25519().public()),
+                last_seen: now,
+            })
+            .collect()
+    };
 
     // Initialize NetworkManager
     let network_manager = NetworkManager::new(
@@ -249,7 +264,7 @@ async fn setup_network_manager(
 /// - The RocksDB database fails to initialize.
 /// - The `NetworkManager` fails to initialize.
 /// - The event listener or consumer fails to start.
-/// - Required environment variables (`NODE_SOLANA_PUBKEY`) are not set or invalid.
+/// - Required environment variables (`NODE_SOLANA_PRIVKEY`) are not set or invalid.
 ///
 /// # Examples
 ///
@@ -303,9 +318,8 @@ async fn main() -> std::io::Result<()> {
         info!("HTTP_URL not set, using default: https://api.mainnet-beta.solana.com");
         "https://api.mainnet-beta.solana.com".to_string()
     });
-    let node_pubkey_str = env::var("NODE_SOLANA_PUBKEY").expect("NODE_SOLANA_PUBKEY environment variable not set");
-    let node_pubkey = Pubkey::from_str(&node_pubkey_str)
-        .expect("NODE_SOLANA_PUBKEY is not a valid Pubkey");
+    let node_pubkey_str = env::var("NODE_SOLANA_PRIVKEY").expect("NODE_SOLANA_PRIVKEY environment variable not set");
+    let node_pubkey = Keypair::from_base58_string(&node_pubkey_str).pubkey();
 
     let config = EventListenerConfig {
         ws_url,
@@ -353,6 +367,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(network_manager.clone()))
             .service(
                 web::scope("/api")
+                    .route("/health", web::get().to(health))
                     .route("/get", web::get().to(get_value))
                     .route("/set", web::post().to(set_value)),
             )
