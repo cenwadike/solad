@@ -1,0 +1,1 @@
+/Users/mac/Documents/projects/solad/node/sdk/target/debug/libsdk.rlib: /Users/mac/Documents/projects/solad/node/sdk/src/error.rs /Users/mac/Documents/projects/solad/node/sdk/src/lib.rs /Users/mac/Documents/projects/solad/node/sdk/src/model.rs
