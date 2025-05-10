@@ -1,0 +1,1 @@
+{"version":3,"file":"WalletConnectNotSupportedError.js","sourceRoot":"","sources":["../../src/errors/WalletConnectNotSupportedError.ts"],"names":[],"mappings":"AAEA,MAAM,OAAO,qCAAsC,SAAQ,KAAK;IAC9D,YAAY,MAA+B;QACzC,KAAK,CAAC,kCAAkC,MAAM,iCAAiC,CAAC,CAAA;QAChF,IAAI,CAAC,IAAI,GAAG,uCAAuC,CAAA;IACrD,CAAC;CACF"}

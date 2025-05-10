@@ -1,0 +1,1 @@
+{"version":3,"file":"signed-partial-transaction.d.ts","sourceRoot":"","sources":["../../../src/payloads/signed-partial-transaction.ts"],"names":[],"mappings":"AAEA,MAAM,WAAW,+BACf,SAAQ,MAAM,CAAC,MAAM,EAAE,MAAM,CAAC;IAC9B,oBAAoB,EAAE,MAAM,CAAC;CAC9B;AAED,wBAAgB,8CAA8C,CAC5D,OAAO,EAAE,OAAO,GACf,OAAO,IAAI,+BAA+B,CAQ5C"}

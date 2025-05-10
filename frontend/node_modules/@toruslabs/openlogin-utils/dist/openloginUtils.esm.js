@@ -1,0 +1,248 @@
+import _defineProperty from '@babel/runtime/helpers/defineProperty';
+import base64urlLib from 'base64url';
+import _objectSpread from '@babel/runtime/helpers/objectSpread2';
+import { TORUS_SAPPHIRE_NETWORK, TORUS_LEGACY_NETWORK } from '@toruslabs/constants';
+export { TORUS_LEGACY_NETWORK, TORUS_SAPPHIRE_NETWORK } from '@toruslabs/constants';
+import Color from 'color';
+
+const base64url = base64urlLib;
+function safebtoa(str) {
+  return base64url.encode(str);
+}
+function safeatob(str) {
+  // Going backwards: from bytestream, to percent-encoding, to original string.
+  return base64url.decode(str);
+}
+function base64toJSON(b64str) {
+  return JSON.parse(base64url.decode(b64str));
+}
+function jsonToBase64(json) {
+  return base64url.encode(JSON.stringify(json));
+}
+function storageAvailable(type) {
+  let storageExists = false;
+  let storageLength = 0;
+  let storage;
+  try {
+    storage = window[type];
+    storageExists = true;
+    storageLength = storage.length;
+    const x = "__storage_test__";
+    storage.setItem(x, x);
+    storage.removeItem(x);
+    return true;
+  } catch (err) {
+    const error = err;
+    return error && (
+    // everything except Firefox
+    error.code === 22 ||
+    // Firefox
+    error.code === 1014 ||
+    // test name field too, because code might not be present
+    // everything except Firefox
+    error.name === "QuotaExceededError" ||
+    // Firefox
+    error.name === "NS_ERROR_DOM_QUOTA_REACHED") &&
+    // acknowledge QuotaExceededError only if there's something already stored
+    storageExists && storageLength !== 0;
+  }
+}
+
+class MemoryStore {
+  constructor() {
+    _defineProperty(this, "store", new Map());
+  }
+  getItem(key) {
+    return this.store.get(key) || null;
+  }
+  setItem(key, value) {
+    this.store.set(key, value);
+  }
+  removeItem(key) {
+    this.store.delete(key);
+  }
+}
+class BrowserStorage {
+  constructor(storeKey, storage) {
+    _defineProperty(this, "storage", void 0);
+    _defineProperty(this, "_storeKey", void 0);
+    this.storage = storage;
+    this._storeKey = storeKey;
+    try {
+      if (!storage.getItem(storeKey)) {
+        this.resetStore();
+      }
+    } catch (error) {
+      // Storage is not available
+    }
+  }
+  static getInstance(key) {
+    let storageKey = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : "local";
+    if (!this.instanceMap.has(key)) {
+      let storage;
+      if (storageKey === "local" && storageAvailable("localStorage")) {
+        storage = window.localStorage;
+      } else if (storageKey === "session" && storageAvailable("sessionStorage")) {
+        storage = window.sessionStorage;
+      } else {
+        storage = new MemoryStore();
+      }
+      this.instanceMap.set(key, new this(key, storage));
+    }
+    return this.instanceMap.get(key);
+  }
+  toJSON() {
+    return this.storage.getItem(this._storeKey);
+  }
+  resetStore() {
+    const currStore = this.getStore();
+    this.storage.removeItem(this._storeKey);
+    return currStore;
+  }
+  getStore() {
+    return JSON.parse(this.storage.getItem(this._storeKey) || "{}");
+  }
+  get(key) {
+    const store = JSON.parse(this.storage.getItem(this._storeKey) || "{}");
+    return store[key];
+  }
+  set(key, value) {
+    const store = JSON.parse(this.storage.getItem(this._storeKey) || "{}");
+    store[key] = value;
+    this.storage.setItem(this._storeKey, JSON.stringify(store));
+  }
+}
+_defineProperty(BrowserStorage, "instanceMap", new Map());
+
+const storeKey = "openlogin_store";
+const UX_MODE = {
+  POPUP: "popup",
+  REDIRECT: "redirect"
+};
+const OPENLOGIN_NETWORK = _objectSpread(_objectSpread({}, TORUS_SAPPHIRE_NETWORK), TORUS_LEGACY_NETWORK);
+const SUPPORTED_KEY_CURVES = {
+  SECP256K1: "secp256k1",
+  ED25519: "ed25519"
+};
+const LOGIN_PROVIDER = {
+  GOOGLE: "google",
+  FACEBOOK: "facebook",
+  REDDIT: "reddit",
+  DISCORD: "discord",
+  TWITCH: "twitch",
+  APPLE: "apple",
+  LINE: "line",
+  GITHUB: "github",
+  KAKAO: "kakao",
+  LINKEDIN: "linkedin",
+  TWITTER: "twitter",
+  WEIBO: "weibo",
+  WECHAT: "wechat",
+  FARCASTER: "farcaster",
+  EMAIL_PASSWORDLESS: "email_passwordless",
+  SMS_PASSWORDLESS: "sms_passwordless",
+  WEBAUTHN: "webauthn",
+  JWT: "jwt"
+};
+const MFA_LEVELS = {
+  DEFAULT: "default",
+  OPTIONAL: "optional",
+  MANDATORY: "mandatory",
+  NONE: "none"
+};
+const OPENLOGIN_ACTIONS = {
+  LOGIN: "login",
+  ENABLE_MFA: "enable_mfa",
+  MANAGE_MFA: "manage_mfa",
+  MODIFY_SOCIAL_FACTOR: "modify_social_factor"
+};
+const BUILD_ENV = {
+  PRODUCTION: "production",
+  DEVELOPMENT: "development",
+  STAGING: "staging",
+  TESTING: "testing"
+};
+
+/**
+ * {@label loginProviderType}
+ */
+
+// autocomplete workaround https://github.com/microsoft/TypeScript/issues/29729
+
+const LANGUAGES = {
+  en: "en",
+  ja: "ja",
+  ko: "ko",
+  de: "de",
+  zh: "zh",
+  es: "es",
+  fr: "fr",
+  pt: "pt",
+  nl: "nl",
+  tr: "tr"
+};
+const LANGUAGE_MAP = {
+  en: "english",
+  ja: "japanese",
+  ko: "korean",
+  de: "german",
+  zh: "mandarin",
+  es: "spanish",
+  fr: "french",
+  pt: "portuguese",
+  nl: "dutch",
+  tr: "turkish"
+};
+const THEME_MODES = {
+  light: "light",
+  dark: "dark",
+  auto: "auto"
+};
+const MFA_FACTOR = {
+  DEVICE: "deviceShareFactor",
+  BACKUP_SHARE: "backUpShareFactor",
+  SOCIAL_BACKUP: "socialBackupFactor",
+  PASSWORD: "passwordFactor",
+  PASSKEYS: "passkeysFactor",
+  AUTHENTICATOR: "authenticatorFactor"
+};
+
+function getColorsList() {
+  let colorsAmount = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 3;
+  let colorsShiftAmount = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 50;
+  let mixColor = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : "black";
+  let rotate = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : 0;
+  let saturation = arguments.length > 4 && arguments[4] !== undefined ? arguments[4] : 20;
+  let mainColor = arguments.length > 5 && arguments[5] !== undefined ? arguments[5] : "#0346ff";
+  const colorsList = [];
+  let step;
+  for (step = 0; step < colorsAmount; step += 1) {
+    colorsList.push(Color(mainColor).rotate((step + 1) / colorsAmount * -rotate).saturate((step + 1) / colorsAmount * (saturation / 100)).mix(Color(mixColor), colorsShiftAmount / 100 * (step + 1) / colorsAmount).hex());
+  }
+  return colorsList;
+}
+function generateWhiteLabelTheme(primary) {
+  const darkSet = getColorsList(3, 50, "black", 0, 20, primary);
+  const lightSet = getColorsList(6, 85, "white", 0, 20, primary);
+  return [...darkSet.reverse(), primary, ...lightSet];
+}
+function applyWhiteLabelTheme(rootElement, theme) {
+  if (theme.primary) {
+    const themeSet = generateWhiteLabelTheme(theme.primary);
+    rootElement.style.setProperty("--app-primary-900", themeSet[0]);
+    rootElement.style.setProperty("--app-primary-800", themeSet[1]);
+    rootElement.style.setProperty("--app-primary-700", themeSet[2]);
+    rootElement.style.setProperty("--app-primary-600", themeSet[3]);
+    rootElement.style.setProperty("--app-primary-500", themeSet[4]);
+    rootElement.style.setProperty("--app-primary-400", themeSet[5]);
+    rootElement.style.setProperty("--app-primary-300", themeSet[6]);
+    rootElement.style.setProperty("--app-primary-200", themeSet[7]);
+    rootElement.style.setProperty("--app-primary-100", themeSet[8]);
+    rootElement.style.setProperty("--app-primary-50", themeSet[9]);
+  }
+  if (theme.onPrimary) {
+    rootElement.style.setProperty("--app-on-primary", theme.onPrimary);
+  }
+}
+
+export { BUILD_ENV, BrowserStorage, LANGUAGES, LANGUAGE_MAP, LOGIN_PROVIDER, MFA_FACTOR, MFA_LEVELS, MemoryStore, OPENLOGIN_ACTIONS, OPENLOGIN_NETWORK, SUPPORTED_KEY_CURVES, THEME_MODES, UX_MODE, applyWhiteLabelTheme, base64toJSON, base64url, generateWhiteLabelTheme, getColorsList, jsonToBase64, safeatob, safebtoa, storageAvailable, storeKey };

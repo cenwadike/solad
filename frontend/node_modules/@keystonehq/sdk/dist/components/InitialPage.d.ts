@@ -1,0 +1,5 @@
+export declare const InitialPage: (props: {
+    walletMode: string;
+    link: string;
+    onButtonClick: () => void;
+}) => JSX.Element;
