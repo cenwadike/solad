@@ -5,7 +5,8 @@
 /// data as locally stored.
 use crate::db::Database;
 use crate::error::ApiError;
-use async_std::sync::{Arc, Mutex as AsyncMutex};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solana_sdk::pubkey::Pubkey;
@@ -34,7 +35,7 @@ pub struct DataMetadata {
 /// keys as local.
 pub struct DataStore {
     pub db: Arc<Database>, // Shared reference to the RocksDB database
-    pub local_data: Arc<AsyncMutex<std::collections::HashSet<String>>>, // Thread-safe set of locally stored keys
+    pub local_data: Arc<TokioMutex<std::collections::HashSet<String>>>, // Thread-safe set of locally stored keys
 }
 
 impl DataStore {
@@ -64,7 +65,7 @@ impl DataStore {
     pub fn new(db: Arc<Database>) -> Self {
         DataStore {
             db,
-            local_data: Arc::new(AsyncMutex::new(std::collections::HashSet::new())),
+            local_data: Arc::new(TokioMutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -109,6 +110,7 @@ impl DataStore {
     /// ```rust
     /// use std::sync::Arc;
     /// use solana_sdk::pubkey::Pubkey;
+    /// use solana_sdk::signature::Keypair;
     /// use crate::db::Database;
     /// use crate::data_store::DataStore;
     ///
@@ -119,8 +121,8 @@ impl DataStore {
     ///     let key = "my_key";
     ///     let data = b"Hello, World!";
     ///     let format = "text";
-    ///     let origin_pubkey = Pubkey::from_str("11111111111111111111111111111111").unwrap();
-    ///     let upload_pda = "7b8f4a2e9c1d4b3e8f5c3a7b9e2d1f4a...";
+    ///     let origin_pubkey = Keypair::new().pubkey();
+    ///     let upload_pda = "7b8f4a2e9c1d4b3e8f5c3a7b9e2d1f4a";
     ///
     ///     data_store.store_data(key, data, format, origin_pubkey, upload_pda)
     ///         .await

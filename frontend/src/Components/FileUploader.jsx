@@ -8,7 +8,7 @@ import {
 import { useWallet } from '@solana/wallet-adapter-react';
 
 const PROGRAM_ID = new PublicKey('4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp');
-const RPC_URL = 'https://api.devnet.solana.com';
+const RPC_URL = 'http://127.0.0.1:8899';
 const connection = new Connection(RPC_URL);
 const NODE_API_URL = 'http://127.0.0.1:8080/api/set';
 

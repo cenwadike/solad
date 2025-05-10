@@ -7,7 +7,8 @@
 /// checks, and event-based payment validation, while asynchronously managing network
 /// gossip and reward claims.
 use actix_web::{web, HttpResponse};
-use async_std::sync::{Arc, Mutex as AsyncMutex};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use borsh::BorshDeserialize;
 use log::{debug, error, info, trace, warn};
 use rocksdb::DB;
@@ -37,24 +38,6 @@ use crate::solad_client::{SoladClient, Upload};
 /// * `Result<HttpResponse, ApiError>` - On success, returns an HTTP 200 response
 ///   with no body. On failure, returns an `ApiError` if an internal error occurs
 ///   (though this is unlikely in this minimal implementation).
-///
-/// # Examples
-///
-/// ```http
-/// GET /health
-/// ```
-///
-/// Response (success):
-/// ```http
-/// HTTP/1.1 200 OK
-/// ```
-///
-/// Response (failure, hypothetical):
-/// ```http
-/// HTTP/1.1 500 Internal Server Error
-/// Content-Type: application/json
-/// {"error": "InternalServerError"}
-/// ```
 pub async fn health() -> Result<HttpResponse, ApiError> {
     Ok(HttpResponse::Ok().into())
 }
@@ -75,26 +58,6 @@ pub async fn health() -> Result<HttpResponse, ApiError> {
 /// * `Result<HttpResponse, ApiError>` - On success, returns an HTTP 200 response with
 ///   the value as the body. On failure, returns an `ApiError` (e.g., `Database` or
 ///   `NotFound`).
-///
-/// # Examples
-///
-/// ```http
-/// GET /get_value?key=my_key
-/// ```
-///
-/// Response (success):
-/// ```http
-/// HTTP/1.1 200 OK
-/// Content-Type: application/octet-stream
-/// [binary data]
-/// ```
-///
-/// Response (not found):
-/// ```http
-/// HTTP/1.1 404 Not Found
-/// Content-Type: application/json
-/// {"error": "NotFound"}
-/// ```
 pub async fn get_value(
     db: web::Data<Arc<DB>>,
     query: web::Query<KeyQuery>,
@@ -138,71 +101,12 @@ pub async fn get_value(
 /// * `Result<HttpResponse, ApiError>` - On success, returns an HTTP 200 response with
 ///   a confirmation message. On failure, returns an `ApiError` (e.g., `InvalidHash`,
 ///   `NodeNotRegistered`, `PaymentNotVerified`, or `NetworkError`).
-///
-/// # Workflow
-///
-/// 1. **Hash Verification**: Validates the provided hash against the computed SHA-256
-///    hash of the data.
-/// 2. **Node Registration Check**: Ensures the node is registered by checking the
-///    `node_registered` key in the database.
-/// 3. **Payment Verification**: Retrieves and verifies the upload event from the
-///    `event_map` using the upload PDA, ensuring the event's data hash matches the
-///    provided hash.
-/// 4. **Event Consumer Validation**: Uses `UploadEventConsumer` to further verify the
-///    event's validity.
-/// 5. **Data Storage**: Stores the key, data, format, node public key, and upload PDA
-///    in the `DataStore`.
-/// 6. **Local Marking**: Marks the key as locally stored in the `DataStore`.
-/// 7. **Gossip Initiation**: Spawns an asynchronous task to gossip the data to the
-///    network using `NetworkManager`.
-/// 8. **Reward Claiming**: Initializes a `SoladClient` to fetch the upload account,
-///    determine the shard ID, and claim rewards for the node.
-/// 9. **Response**: Returns a success message if all steps complete successfully.
-///
-/// # Errors
-///
-/// - `InvalidHash`: If the provided hash does not match the computed hash or the
-///   event's hash.
-/// - `NodeNotRegistered`: If the node is not registered in the database.
-/// - `PaymentNotVerified`: If the upload event is missing or invalid.
-/// - `NetworkError`: For issues like invalid Solana keys, RPC failures, or reward
-///   claim failures.
-/// - `Database`: For database operation errors.
-///
-/// # Examples
-///
-/// ```http
-/// POST /set_value
-/// Content-Type: application/json
-///
-/// {
-///   "key": "my_key",
-///   "data": "SGVsbG8gV29ybGQh",
-///   "hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
-///   "format": "text",
-///   "upload_pda": "7b8f4a2e9c1d4b3e8f5c3a7b9e2d1f4a..."
-/// }
-/// ```
-///
-/// Response (success):
-/// ```http
-/// HTTP/1.1 200 OK
-/// Content-Type: text/plain
-/// Data set successfully
-/// ```
-///
-/// Response (invalid hash):
-/// ```http
-/// HTTP/1.1 400 Bad Request
-/// Content-Type: application/json
-/// {"error": "InvalidHash"}
-/// ```
 pub async fn set_value(
     data_store: web::Data<Arc<DataStore>>,
     event_map: web::Data<EventMap>,
     payload: web::Json<KeyValuePayload>,
     config: web::Data<EventListenerConfig>,
-    network_manager: web::Data<Arc<AsyncMutex<NetworkManager>>>,
+    network_manager: web::Data<Arc<TokioMutex<NetworkManager>>>,
 ) -> Result<HttpResponse, ApiError> {
     trace!(
         "Received POST request to set value for key: {}",
@@ -306,7 +210,7 @@ pub async fn set_value(
 
     // Spawn a task to gossip the data to the network
     trace!("Spawning task to gossip data for key: {}", payload.key);
-    async_std::task::spawn({
+    tokio::spawn({
         let network_manager = network_manager.clone();
         let key = payload.key.clone();
         let data = payload.data.clone();
@@ -359,7 +263,8 @@ pub async fn set_value(
 
     // Deserialize the upload account
     trace!("Deserializing upload account for PDA: {}", upload_pda);
-    let upload_account = Upload::deserialize(&mut account_data.as_slice()).map_err(|e| {
+    let mut account_data = &account_data[8..];
+    let upload_account = Upload::deserialize(&mut account_data).map_err(|e| {
         error!(
             "Failed to deserialize Upload account for PDA {}: {}",
             upload_pda, e

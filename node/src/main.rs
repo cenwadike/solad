@@ -10,7 +10,8 @@
 /// and colored console output is preserved for real-time debugging.
 use ::libp2p::{identity, PeerId};
 use actix_web::{web, App, HttpServer};
-use async_std::sync::{Arc, Mutex as AsyncMutex};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use chrono::Local;
 use colored::Colorize;
 use dashmap::DashMap;
@@ -130,32 +131,13 @@ fn setup_logging() -> std::io::Result<()> {
 ///
 /// # Returns
 ///
-/// * `Arc<AsyncMutex<NetworkManager>>` - A thread-safe reference to the initialized
+/// * `Arc<TokioMutex<NetworkManager>>` - A thread-safe reference to the initialized
 ///   `NetworkManager`.
-///
-/// # Workflow
-///
-/// 1. **RPC Client Initialization**: Creates a non-blocking Solana RPC client using the
-///    HTTP URL from the config.
-/// 2. **Keypair Generation**: Generates an Ed25519 keypair for libp2p authentication.
-/// 3. **Peer Setup**: Creates a placeholder peer with a public key from the
-///    NODE_SOLANA_PRIVKEY environment variable, multiaddress, and peer ID.
-/// 4. **NetworkManager Initialization**: Constructs a `NetworkManager` with the generated
-///    keypair, peer list, node public key, RPC client, database, and program ID.
-/// 5. **Gossip Task**: Spawns a task to run `receive_gossiped_data` on the `NetworkManager`,
-///    processing incoming gossiped data and storing it in the `DataStore`.
-///
-/// # Panics
-///
-/// Panics if:
-/// - The `NetworkManager` initialization fails.
-/// - The `NODE_SOLANA_PRIVKEY` environment variable is not a valid `Pubkey`.
-/// - The placeholder multiaddress is invalid.
 async fn setup_network_manager(
     config: &EventListenerConfig,
     db: Arc<Database>,
     data_store: Arc<DataStore>,
-) -> Arc<AsyncMutex<NetworkManager>> {
+) -> Arc<TokioMutex<NetworkManager>> {
     // Initialize Solana RPC client
     let rpc_client = RpcClient::new(config.http_url.clone());
 
@@ -205,7 +187,8 @@ async fn setup_network_manager(
     )
     .await
     .expect("Failed to initialize NetworkManager");
-    let network_manager_arc = Arc::new(AsyncMutex::new(network_manager));
+    
+    let network_manager_arc = Arc::new(TokioMutex::new(network_manager));
 
     // Start the receive_gossiped_data task
     tokio::spawn({
@@ -229,63 +212,6 @@ async fn setup_network_manager(
 ///
 /// * `std::io::Result<()>` - Returns `Ok(())` if the server runs successfully, or an
 ///   `Err` if there is an I/O error (e.g., failure to bind to the port).
-///
-/// # Workflow
-///
-/// 1. **Logging Setup**: Configures logging to write JSON logs to `./logs/node.log.txt`
-///    with rotation and console output with colors.
-/// 2. **Environment Variables**: Loads environment variables from `.env` for Solana
-///    configuration.
-/// 3. **Database Initialization**: Creates a RocksDB instance at the path `./mydb`.
-/// 4. **Data Store Setup**: Initializes a `DataStore` with the database instance.
-/// 5. **Event Map Creation**: Creates a thread-safe `DashMap` to store upload events
-///    keyed by `Pubkey`.
-/// 6. **Configuration Setup**: Configures the `EventListenerConfig` with Solana WebSocket
-///    and HTTP URLs, program ID, node public key, and commitment level from environment
-///    variables.
-/// 7. **Event Listener**: Spawns a task to run the `UploadEventListener`, which listens
-///    for upload events on the Solana blockchain and stores them in the event map.
-/// 8. **Event Consumer**: Spawns a task to run the `UploadEventConsumer`, which processes
-///    events from the event map for payment verification.
-/// 9. **Network Manager**: Calls `setup_network_manager` to initialize the `NetworkManager`
-///    and start gossip handling.
-/// 10. **HTTP Server**: Starts an Actix-web server on `127.0.0.1:8080`, registering
-///     `/api/get` and `/api/set` endpoints for data retrieval and storage.
-///
-/// # API Endpoints
-///
-/// - `GET /api/get`: Retrieves a value by key (handled by `get_value`).
-/// - `POST /api/set`: Stores a key-value pair with payment verification (handled by
-///   `set_value`).
-///
-/// # Panics
-///
-/// Panics if:
-/// - The RocksDB database fails to initialize.
-/// - The `NetworkManager` fails to initialize.
-/// - The event listener or consumer fails to start.
-/// - Required environment variables (`NODE_SOLANA_PRIVKEY`) are not set or invalid.
-///
-/// # Examples
-///
-/// Start the server:
-/// ```bash
-/// cargo run
-/// ```
-///
-/// Access the API:
-/// ```http
-/// GET http://127.0.0.1:8080/api/get?key=my_key
-/// POST http://127.0.0.1:8080/api/set
-/// Content-Type: application/json
-/// {
-///   "key": "my_key",
-///   "data": "SGVsbG8gV29ybGQh",
-///   "hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
-///   "format": "text",
-///   "upload_pda": "7b8f4a2e9c1d4b3e8f5c3a7b9e2d1f4a..."
-/// }
-/// ```
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Load environment variables from .env file

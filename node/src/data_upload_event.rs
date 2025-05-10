@@ -1,3 +1,4 @@
+use crate::error::ApiError;
 /// This module implements event listening and processing for upload events in a decentralized
 /// storage network. It integrates with the Solana blockchain to subscribe to transaction logs,
 /// parse upload events, and verify payments. The module includes the `UploadEventListener` for
@@ -14,7 +15,6 @@ use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
-use crate::error::ApiError;
 
 /// Represents an upload event emitted by the Solana program.
 ///
