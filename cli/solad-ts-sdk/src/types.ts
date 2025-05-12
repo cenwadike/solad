@@ -1,6 +1,6 @@
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 
-export interface StorageConfigParams {
+export interface StorageConfig {
   treasury: PublicKey;
   solPerGb: number;
   treasuryFeePercent: number;
@@ -18,11 +18,10 @@ export interface StorageConfigParams {
   userSlashPenaltyPercent: number;
   reportingWindow: number;
   oversizedReportThreshold: number;
-  maxSubmssions: number;
+  maxSubmissions: number;
 }
 
-// create upload instruction arg interface
-export interface UploadParams {
+export interface UploadRequest {
   dataHash: string;
   sizeBytes: number;
   shardCount: number;
@@ -30,25 +29,16 @@ export interface UploadParams {
   nodes: PublicKey[];
 }
 
-export interface UploadReqParams extends UploadParams {
-  uploadUrl: string;
-}
-
 export interface OffChainMetadata {
   uploadUrl: string;
-  payload: {
-    dataHash: string;
-    sizeBytes: number;
-    shardCount: number;
-  };
+  payload: Omit<UploadRequest, "duration" | "nodes">;
 }
 
-export interface PrepareUploadReturn {
+export interface PreparedUpload {
   instruction: TransactionInstruction;
   offChainMetadata: OffChainMetadata;
 }
 
-// Proof Of Storage submission
 export interface PoSSubmission {
   dataHash: string;
   shardId: number;
@@ -60,15 +50,31 @@ export interface PoSSubmission {
   actualSizeMb?: number;
 }
 
-export interface PoSSubmissionParams {
+export interface PoSSubmissionRequest {
   submission: PoSSubmission;
   uploader: PublicKey;
   nodes: PublicKey[];
 }
 
-export interface RequestReplacementParams {
+export interface RequestReplacement {
   dataHash: string;
   shardId: number;
   owner: PublicKey;
   replacementNode?: PublicKey;
+}
+
+export interface DataUploadRequest {
+  key: string;
+  data: Buffer;
+  format: string;
+  duration: number; // in days
+  nodes: PublicKey[];
+  endpoint: string;
+}
+export interface DataUploadPayload {
+  key: string;
+  data: string;
+  hash: string;
+  format: string;
+  upload_pda: PublicKey;
 }

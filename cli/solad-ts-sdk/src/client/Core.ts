@@ -1,13 +1,11 @@
 import * as anchor from "@coral-xyz/anchor";
 import { TransactionInstruction, SystemProgram } from "@solana/web3.js";
 import {
-  StorageConfigParams,
-  UploadParams,
-  UploadReqParams,
-  OffChainMetadata,
-  PrepareUploadReturn,
-  PoSSubmissionParams,
-  RequestReplacementParams,
+  StorageConfig,
+  UploadRequest,
+  PreparedUpload,
+  RequestReplacement,
+  PoSSubmissionRequest,
 } from "../types";
 import { PDAHelper } from "../utils/pda-helper";
 import { StateHelper } from "../utils/state-helper";
@@ -26,12 +24,12 @@ export class Core {
    * requirements. It is typically called once by the program authority to ensure
    * economic and operational integrity.
    *
-   * @param {StorageConfigParams} params - Configuration parameters including; storage pricing, fee allocations, shard constraints, epoch settings,
+   * @param {StorageConfig} params - Configuration parameters including; storage pricing, fee allocations, shard constraints, epoch settings,
    *                                       and node requirements.
    * @returns {Promise<TransactionInstruction>} A promise that resolves to the transaction instruction.
    */
   async createInitializeIx(
-    params: StorageConfigParams
+    params: StorageConfig
   ): Promise<TransactionInstruction> {
     const pdas = new PDAHelper(this.client.programId);
 
@@ -53,7 +51,7 @@ export class Core {
         new anchor.BN(params.userSlashPenaltyPercent),
         new anchor.BN(params.reportingWindow),
         params.oversizedReportThreshold,
-        new anchor.BN(params.maxSubmssions)
+        new anchor.BN(params.maxSubmissions)
       )
       .accounts({
         storageConfig: pdas.storageConfig,
@@ -96,7 +94,7 @@ export class Core {
    * Creates a transaction instruction to upload the specified data, with the
    * specified size, shard count, and duration.
    *
-   * @param {UploadParams} params - The parameters for the upload:
+   * @param {UploadRequest} params - The parameters for the upload:
    *  - dataHash: The SHA-256 hash of the data to be uploaded.
    *  - sizeBytes: The size of the data in bytes.
    *  - shardCount: The number of shards to split the data into.
@@ -104,7 +102,7 @@ export class Core {
    *  - nodes: The public keys of the nodes to which the shards will be uploaded.
    * @returns {Promise<TransactionInstruction>} A promise that resolves to the transaction instruction.
    */
-  async createUploadIx(params: UploadParams): Promise<TransactionInstruction> {
+  async createUploadIx(params: UploadRequest): Promise<TransactionInstruction> {
     const pdas = new PDAHelper(this.client.programId);
     const storageConfig = await new StateHelper(
       this.client.programId
@@ -154,40 +152,41 @@ export class Core {
    *  - uploadUrl: The URL to which the shards will be uploaded.
    * @returns {OffChainMetadata} An object containing the data upload metadata.
    */
-  getUploadRequirements(params: UploadReqParams): OffChainMetadata {
-    return {
-      uploadUrl: params.uploadUrl,
-      payload: {
-        dataHash: params.dataHash,
-        shardCount: params.shardCount,
-        sizeBytes: params.sizeBytes,
-      },
-    };
-  }
+  //   getUploadRequirements(params: UploadReqParams): OffChainMetadata {
+  //     return {
+  //       uploadUrl: params.uploadUrl,
+  //       payload: {
+  //         dataHash: params.dataHash,
+  //         shardCount: params.shardCount,
+  //         sizeBytes: params.sizeBytes,
+  //       },
+  //     };
+  //   }
 
   /**
-   * Data Ops: prepare upload
+   * Prepares the data upload by creating the necessary transaction instruction and metadata.
    *
-   * Prepares the upload process by creating the necessary transaction instruction
-   * and gathering metadata for off-chain operations. This function operates at the core layer.
-   *
-   * @param {UploadReqParams} params - The parameters required for preparing the upload:
-   *  - dataHash: The SHA-256 hash of the data to be uploaded.
-   *  - shardCount: The number of shards to split the data into.
-   *  - sizeBytes: The size of the data in bytes.
-   *  - uploadUrl: The URL to which the shards will be uploaded.
-   * @returns {Promise<PrepareUploadReturn>} A promise that resolves to an object containing:
-   *  - instruction: The transaction instruction for the upload.
-   *  - offChainMetadata: Metadata required for the off-chain upload process.
+   * @param {UploadRequest} params - The parameters for the upload, including the data hash, size, shard count, and duration.
+   * @param {string} uploadUrl - The URL where the data will be uploaded.
+   * @returns {Promise<PreparedUpload>} A promise that resolves to an object containing the transaction instruction and off-chain metadata.
    */
-  async prepareUpload(params: UploadReqParams): Promise<PrepareUploadReturn> {
+  async prepareUpload(
+    params: UploadRequest,
+    uploadUrl: string
+  ): Promise<PreparedUpload> {
     const instruction = await this.createUploadIx(params);
-    const uploadInfo = this.getUploadRequirements(params);
 
     // Return the prepared upload information including the instruction and metadata
     return {
       instruction,
-      offChainMetadata: uploadInfo,
+      offChainMetadata: {
+        uploadUrl: uploadUrl,
+        payload: {
+          dataHash: params.dataHash,
+          shardCount: params.shardCount,
+          sizeBytes: params.sizeBytes,
+        },
+      },
     };
   }
 
@@ -198,14 +197,14 @@ export class Core {
    * specific data hash and shard id. This method is used by a node to submit a
    * PoS to the Solad network.
    *
-   * @param {PoSSubmissionParams} params - The parameters required for creating the submit pos instruction:
+   * @param {PoSSubmissionRequest} params - The parameters required for creating the submit pos instruction:
    *  - submission: The PoSSubmission object containing the PoS details.
    *  - uploader: The public key of the node submitting the PoS.
    *  - nodes: The public keys of the nodes to which the shards will be uploaded.
    * @returns {Promise<TransactionInstruction>} A promise that resolves to the transaction instruction.
    */
   async createSubmitPosIx(
-    params: PoSSubmissionParams
+    params: PoSSubmissionRequest
   ): Promise<TransactionInstruction> {
     const storageConfig = await new StateHelper(
       this.client.programId
@@ -242,7 +241,7 @@ export class Core {
    * Creates a transaction instruction to request a replacement for a node.
    * This is used when a node wishes to exit or be replaced in the storage network.
    *
-   * @param {RequestReplacementParams} params - The parameters for requesting a replacement:
+   * @param {RequestReplacement} params - The parameters for requesting a replacement:
    *  - dataHash: The hash of the data associated with the request.
    *  - shardId: The ID of the shard to be replaced.
    *  - owner: The public key of the current owner of the shard.
@@ -250,7 +249,7 @@ export class Core {
    * @returns {Promise<TransactionInstruction>} A promise that resolves to the transaction instruction.
    */
   async createRequestReplacementIx(
-    params: RequestReplacementParams
+    params: RequestReplacement
   ): Promise<TransactionInstruction> {
     const storageConfig = await new StateHelper(
       this.client.programId
