@@ -32,20 +32,18 @@ export class Service {
   }
 
   /**
-   * Register a new node with the specified stake amount and then upload the
-   * given data to the Solad network.
+   * Register a new node with the specified stake amount on the Solad network.
    *
-   * This method first registers a new node with the given stake amount using the
-   * `registerNode` instruction. After the registration is confirmed, it then
-   * uploads the given data using the `uploadData` method.
+   * This method registers a new node with the given stake amount using the
+   * `registerNode` instruction. 
    *
-   * @param {DataUploadRequest & { stakeAmount: number }} params - Parameters for registering a node and uploading data.
-   * @returns {Promise<{ dataHash: string; uploadPDA: PublicKey }>} - The promise resolves to an object containing the data hash and the upload PDA.
+   * @param { { stakeAmount: number } } params - Parameters for registering a node 
+   * @returns {Promise<{ dataHash: string; uploadPDA: PublicKey }>} - The promise resolves to an object containing the tx hash .
    */
-  async registerAndUpload(
-    params: DataUploadRequest & { stakeAmount: number }
-  ): Promise<{ dataHash: string; uploadPDA: PublicKey }> {
-    // Phase 1: Register node
+  async registerNode(
+    params: { stakeAmount: number }
+  ): Promise<{ dataHash: string }> {
+    // Register node
     const registerIx = await this.core.createRegisterNodeIx(params.stakeAmount);
 
     try {
@@ -54,13 +52,12 @@ export class Service {
 
       // Confirm the transaction
       await this.client.confirmTransaction(txSig);
+
+      return { dataHash: txSig };
     } catch (err: any) {
       // TODO: use error type
       throw new Error(`Node registeration failed: ${err.message}`);
     }
-
-    // Phase 2: Upload data
-    return this.uploadData(params);
   }
 
   /**

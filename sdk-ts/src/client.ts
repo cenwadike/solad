@@ -10,7 +10,7 @@ import {
   RpcResponseAndContext,
   SignatureResult,
 } from "@solana/web3.js";
-import idl from "../secrete-deps/contract.json";
+import idl from "../idl/contract.json";
 
 export class StorageSDK {
   private provider: AnchorProvider;
