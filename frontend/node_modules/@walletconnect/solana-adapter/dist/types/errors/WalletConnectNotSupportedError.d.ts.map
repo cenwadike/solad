@@ -1,1 +1,0 @@
-{"version":3,"file":"WalletConnectNotSupportedError.d.ts","sourceRoot":"","sources":["../../../src/errors/WalletConnectNotSupportedError.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,uBAAuB,EAAE,MAAM,iBAAiB,CAAA;AAE9D,qBAAa,qCAAsC,SAAQ,KAAK;gBAClD,MAAM,EAAE,uBAAuB;CAI5C"}

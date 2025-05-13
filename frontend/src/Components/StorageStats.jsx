@@ -1,8 +1,8 @@
 // src/components/StorageStats.jsx
 import React, { useEffect, useState } from 'react';
 
-const MAX_UPLOADS = 100;
-const MAX_STORAGE = 100 * 1024 * 1024 * 1024; // 5GB in bytes
+const MAX_UPLOADS = 100000;
+const MAX_STORAGE = 100 * 1024 * 1024 * 1024; // 100GB in bytes
 
 const formatBytes = (bytes) => {
   if (bytes === 0) return '0 B';

@@ -10,7 +10,8 @@
 /// and colored console output is preserved for real-time debugging.
 use ::libp2p::{identity, PeerId};
 use actix_web::{web, App, HttpServer};
-use async_std::sync::{Arc, Mutex as AsyncMutex};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 use chrono::Local;
 use colored::Colorize;
 use dashmap::DashMap;
@@ -22,17 +23,18 @@ use serde_json::json;
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::Keypair;
+use solana_sdk::signer::Signer;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-use std::str::FromStr;
 use strip_ansi_escapes;
 
 use crate::data_store::DataStore;
 use crate::data_upload_event::{EventListenerConfig, UploadEvent, UploadEventListener};
 use crate::db::Database;
-use crate::handlers::{get_value, set_value};
+use crate::handlers::{get_value, health, set_value};
 use crate::network_manager::{NetworkManager, PeerInfo};
 
 mod data_store;
@@ -129,32 +131,13 @@ fn setup_logging() -> std::io::Result<()> {
 ///
 /// # Returns
 ///
-/// * `Arc<AsyncMutex<NetworkManager>>` - A thread-safe reference to the initialized
+/// * `Arc<TokioMutex<NetworkManager>>` - A thread-safe reference to the initialized
 ///   `NetworkManager`.
-///
-/// # Workflow
-///
-/// 1. **RPC Client Initialization**: Creates a non-blocking Solana RPC client using the
-///    HTTP URL from the config.
-/// 2. **Keypair Generation**: Generates an Ed25519 keypair for libp2p authentication.
-/// 3. **Peer Setup**: Creates a placeholder peer with a public key from the
-///    SOLANA_ADMIN_PRIVATE_KEY environment variable, multiaddress, and peer ID.
-/// 4. **NetworkManager Initialization**: Constructs a `NetworkManager` with the generated
-///    keypair, peer list, node public key, RPC client, database, and program ID.
-/// 5. **Gossip Task**: Spawns a task to run `receive_gossiped_data` on the `NetworkManager`,
-///    processing incoming gossiped data and storing it in the `DataStore`.
-///
-/// # Panics
-///
-/// Panics if:
-/// - The `NetworkManager` initialization fails.
-/// - The `SOLANA_ADMIN_PRIVATE_KEY` environment variable is not a valid `Pubkey`.
-/// - The placeholder multiaddress is invalid.
 async fn setup_network_manager(
     config: &EventListenerConfig,
     db: Arc<Database>,
     data_store: Arc<DataStore>,
-) -> Arc<AsyncMutex<NetworkManager>> {
+) -> Arc<TokioMutex<NetworkManager>> {
     // Initialize Solana RPC client
     let rpc_client = RpcClient::new(config.http_url.clone());
 
@@ -165,19 +148,33 @@ async fn setup_network_manager(
         .unwrap()
         .as_secs();
 
-    // Load SOLANA_ADMIN_PRIVATE_KEY as a Pubkey for peers
-    let admin_pubkey_str = env::var("SOLANA_ADMIN_PRIVATE_KEY")
-        .expect("SOLANA_ADMIN_PRIVATE_KEY environment variable not set");
-    let admin_pubkey = Pubkey::from_str(&admin_pubkey_str)
-        .expect("SOLANA_ADMIN_PRIVATE_KEY is not a valid Pubkey");
+    // Load NODE_SOLANA_PRIVKEY as a Pubkey for peers
+    let node_pubkey_str =
+        env::var("NODE_SOLANA_PRIVKEY").expect("NODE_SOLANA_PRIVKEY environment variable not set");
+    let node_pubkey = Keypair::from_base58_string(&node_pubkey_str).pubkey();
 
-    // Placeholder peers (using SOLANA_ADMIN_PRIVATE_KEY as pubkey)
-    let peers = vec![PeerInfo {
-        pubkey: admin_pubkey,
-        multiaddr: "/ip4/127.0.0.1/tcp/4001".parse().expect("Valid multiaddr"),
-        peer_id: PeerId::from_public_key(&identity::Keypair::generate_ed25519().public()),
-        last_seen: now,
-    }];
+    // Peers (using NODE_SOLANA_PRIVKEY as pubkey)
+    let seed_nodes = env::var("SEED_NODES").unwrap_or_default();
+    let peers = if seed_nodes.is_empty() {
+        // Standalone mode with placeholder peer
+        vec![PeerInfo {
+            pubkey: node_pubkey,
+            multiaddr: "/ip4/127.0.0.1/tcp/4001".parse().expect("Valid multiaddr"),
+            peer_id: PeerId::from_public_key(&identity::Keypair::generate_ed25519().public()),
+            last_seen: now,
+        }]
+    } else {
+        // Parse SEED_NODES (e.g., "/ip4/1.2.3.4/tcp/4001,/ip4/5.6.7.8/tcp/4001")
+        seed_nodes
+            .split(',')
+            .map(|addr| PeerInfo {
+                pubkey: node_pubkey,
+                multiaddr: addr.parse().expect("Valid multiaddr"),
+                peer_id: PeerId::from_public_key(&identity::Keypair::generate_ed25519().public()),
+                last_seen: now,
+            })
+            .collect()
+    };
 
     // Initialize NetworkManager
     let network_manager = NetworkManager::new(
@@ -190,7 +187,8 @@ async fn setup_network_manager(
     )
     .await
     .expect("Failed to initialize NetworkManager");
-    let network_manager_arc = Arc::new(AsyncMutex::new(network_manager));
+    
+    let network_manager_arc = Arc::new(TokioMutex::new(network_manager));
 
     // Start the receive_gossiped_data task
     tokio::spawn({
@@ -214,63 +212,6 @@ async fn setup_network_manager(
 ///
 /// * `std::io::Result<()>` - Returns `Ok(())` if the server runs successfully, or an
 ///   `Err` if there is an I/O error (e.g., failure to bind to the port).
-///
-/// # Workflow
-///
-/// 1. **Logging Setup**: Configures logging to write JSON logs to `./logs/node.log.txt`
-///    with rotation and console output with colors.
-/// 2. **Environment Variables**: Loads environment variables from `.env` for Solana
-///    configuration.
-/// 3. **Database Initialization**: Creates a RocksDB instance at the path `./mydb`.
-/// 4. **Data Store Setup**: Initializes a `DataStore` with the database instance.
-/// 5. **Event Map Creation**: Creates a thread-safe `DashMap` to store upload events
-///    keyed by `Pubkey`.
-/// 6. **Configuration Setup**: Configures the `EventListenerConfig` with Solana WebSocket
-///    and HTTP URLs, program ID, node public key, and commitment level from environment
-///    variables.
-/// 7. **Event Listener**: Spawns a task to run the `UploadEventListener`, which listens
-///    for upload events on the Solana blockchain and stores them in the event map.
-/// 8. **Event Consumer**: Spawns a task to run the `UploadEventConsumer`, which processes
-///    events from the event map for payment verification.
-/// 9. **Network Manager**: Calls `setup_network_manager` to initialize the `NetworkManager`
-///    and start gossip handling.
-/// 10. **HTTP Server**: Starts an Actix-web server on `127.0.0.1:8080`, registering
-///     `/api/get` and `/api/set` endpoints for data retrieval and storage.
-///
-/// # API Endpoints
-///
-/// - `GET /api/get`: Retrieves a value by key (handled by `get_value`).
-/// - `POST /api/set`: Stores a key-value pair with payment verification (handled by
-///   `set_value`).
-///
-/// # Panics
-///
-/// Panics if:
-/// - The RocksDB database fails to initialize.
-/// - The `NetworkManager` fails to initialize.
-/// - The event listener or consumer fails to start.
-/// - Required environment variables (`NODE_SOLANA_PUBKEY`) are not set or invalid.
-///
-/// # Examples
-///
-/// Start the server:
-/// ```bash
-/// cargo run
-/// ```
-///
-/// Access the API:
-/// ```http
-/// GET http://127.0.0.1:8080/api/get?key=my_key
-/// POST http://127.0.0.1:8080/api/set
-/// Content-Type: application/json
-/// {
-///   "key": "my_key",
-///   "data": "SGVsbG8gV29ybGQh",
-///   "hash": "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
-///   "format": "text",
-///   "upload_pda": "7b8f4a2e9c1d4b3e8f5c3a7b9e2d1f4a..."
-/// }
-/// ```
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Load environment variables from .env file
@@ -303,9 +244,9 @@ async fn main() -> std::io::Result<()> {
         info!("HTTP_URL not set, using default: https://api.mainnet-beta.solana.com");
         "https://api.mainnet-beta.solana.com".to_string()
     });
-    let node_pubkey_str = env::var("NODE_SOLANA_PUBKEY").expect("NODE_SOLANA_PUBKEY environment variable not set");
-    let node_pubkey = Pubkey::from_str(&node_pubkey_str)
-        .expect("NODE_SOLANA_PUBKEY is not a valid Pubkey");
+    let node_pubkey_str =
+        env::var("NODE_SOLANA_PRIVKEY").expect("NODE_SOLANA_PRIVKEY environment variable not set");
+    let node_pubkey = Keypair::from_base58_string(&node_pubkey_str).pubkey();
 
     let config = EventListenerConfig {
         ws_url,
@@ -314,7 +255,10 @@ async fn main() -> std::io::Result<()> {
         node_pubkey,
         commitment: CommitmentConfig::confirmed(),
     };
-    info!("Configured EventListenerConfig with node_pubkey: {}", node_pubkey);
+    info!(
+        "Configured EventListenerConfig with node_pubkey: {}",
+        node_pubkey
+    );
 
     // Start event listener
     let listener_config = config.clone();
@@ -353,6 +297,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(network_manager.clone()))
             .service(
                 web::scope("/api")
+                    .route("/health", web::get().to(health))
                     .route("/get", web::get().to(get_value))
                     .route("/set", web::post().to(set_value)),
             )

@@ -1,7 +1,6 @@
-echo ".env" >> .gitignore
-
 # Node modules
 node_modules/
+package-lock.json
 
 # Build output
 dist/
@@ -37,4 +36,4 @@ target/
 anchor.toml
 
 # Optional: Solana IDL
-idl/
+# idl/

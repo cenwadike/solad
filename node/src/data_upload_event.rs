@@ -1,3 +1,4 @@
+use crate::error::ApiError;
 /// This module implements event listening and processing for upload events in a decentralized
 /// storage network. It integrates with the Solana blockchain to subscribe to transaction logs,
 /// parse upload events, and verify payments. The module includes the `UploadEventListener` for
@@ -13,8 +14,7 @@ use solana_client::{
 use solana_sdk::{commitment_config::CommitmentConfig, pubkey::Pubkey};
 use std::sync::Arc;
 use std::time::Duration;
-
-use crate::error::ApiError;
+use tokio::time::timeout;
 
 /// Represents an upload event emitted by the Solana program.
 ///
@@ -150,12 +150,67 @@ impl UploadEventListener {
     ///     listener.start().await.unwrap();
     /// }
     /// ```
+    // pub async fn start(&self) -> Result<(), ApiError> {
+    //     info!(
+    //         "Starting UploadEventListener for program: {}",
+    //         self.config.program_id
+    //     );
+    //     // Configure logs subscription
+    //     let filter = RpcTransactionLogsFilter::Mentions(vec![self.config.program_id.to_string()]);
+    //     let logs_config = RpcTransactionLogsConfig {
+    //         commitment: Some(self.config.commitment.clone()),
+    //     };
+    //     trace!(
+    //         "Configuring WebSocket subscription with filter for program: {}",
+    //         self.config.program_id
+    //     );
+
+    //     // Establish WebSocket subscription
+    //     let (_sub, stream) = solana_client::pubsub_client::PubsubClient::logs_subscribe(
+    //         &self.config.ws_url,
+    //         filter,
+    //         logs_config,
+    //     )
+    //     .map_err(|e| {
+    //         error!("Failed to establish WebSocket subscription: {}", e);
+    //         ApiError::SubscriptionFailed
+    //     })?;
+    //     info!(
+    //         "WebSocket subscription established for program: {}",
+    //         self.config.program_id
+    //     );
+
+    //     // Process incoming log messages
+    //     loop {
+    //         match stream.try_recv() {
+    //             Ok(response) => {
+    //                 trace!("Received log response");
+    //                 // Handle received log response
+    //                 if let Err(e) = self.process_log_response(response).await {
+    //                     warn!("Error processing log response: {}", e);
+    //                     continue;
+    //                 }
+    //             }
+    //             Err(crossbeam_channel::TryRecvError::Empty) => {
+    //                 // No messages, continue polling
+    //                 trace!("No new log messages available");
+    //                 continue;
+    //             }
+    //             Err(crossbeam_channel::TryRecvError::Disconnected) => {
+    //                 error!("WebSocket subscription disconnected");
+    //                 return Err(ApiError::SubscriptionFailed);
+    //             }
+    //         }
+    //         // Yield control to prevent tight loop
+    //         tokio::time::sleep(Duration::from_millis(200)).await;
+    //     }
+    // }
+
     pub async fn start(&self) -> Result<(), ApiError> {
         info!(
             "Starting UploadEventListener for program: {}",
             self.config.program_id
         );
-        // Configure logs subscription
         let filter = RpcTransactionLogsFilter::Mentions(vec![self.config.program_id.to_string()]);
         let logs_config = RpcTransactionLogsConfig {
             commitment: Some(self.config.commitment.clone()),
@@ -165,7 +220,6 @@ impl UploadEventListener {
             self.config.program_id
         );
 
-        // Establish WebSocket subscription
         let (_sub, stream) = solana_client::pubsub_client::PubsubClient::logs_subscribe(
             &self.config.ws_url,
             filter,
@@ -182,25 +236,26 @@ impl UploadEventListener {
 
         // Process incoming log messages
         loop {
-            match stream.try_recv() {
-                Ok(response) => {
+            trace!("Attempting to receive log message");
+            match timeout(Duration::from_millis(500), async { stream.try_recv() }).await {
+                Ok(Ok(response)) => {
                     trace!("Received log response");
-                    // Handle received log response
                     if let Err(e) = self.process_log_response(response).await {
                         warn!("Error processing log response: {}", e);
-                        continue;
                     }
                 }
-                Err(crossbeam_channel::TryRecvError::Empty) => {
-                    // No messages, continue polling
+                Ok(Err(crossbeam_channel::TryRecvError::Empty)) => {
                     trace!("No new log messages available");
-                    continue;
                 }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                Ok(Err(crossbeam_channel::TryRecvError::Disconnected)) => {
                     error!("WebSocket subscription disconnected");
                     return Err(ApiError::SubscriptionFailed);
                 }
+                Err(_) => {
+                    trace!("Timeout waiting for log message");
+                }
             }
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
 

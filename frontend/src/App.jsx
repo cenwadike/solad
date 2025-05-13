@@ -40,7 +40,7 @@ export default function App() {
 
             {/* Main UI */}
             <main className="pt-28 px-4">
-              <h1 className="text-3xl font-bold text-center mb-10">SOLAD: Solana File Storage</h1>
+              <h1 className="text-3xl font-bold text-center mb-10">SOLAD: Solana Storage Lad 🐾</h1>
               <FileUploader />
               <StorageStats />
             </main>
