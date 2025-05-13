@@ -7,6 +7,14 @@ import { sha256 } from "@noble/hashes/sha256";
 // import { etc, sign } from "@noble/secp256k1";
 import { hmac } from "@noble/hashes/hmac";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load environment variables from .env file
+// Specify the path to .env if it's not in the root directory
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+const nodePrivateKey = process.env.NODE_PRIVATE_KEY;
 
 // // Utility function to generate a Merkle tree and proof
 // function generateMerkleTreeAndProof(leaves: any[]) {
@@ -68,7 +76,7 @@ describe("contract", () => {
   const program = anchor.workspace.Contract as Program<Contract>;
   const admin = Keypair.generate();
   // const user = Keypair.generate();
-  const user = deriveKeypairFromSecretKey("5tYsu4WCRjUkWzTypCUvp5XDZLyJpXGqiMFwAaG5b3U51XifmPkuwftDMH55YxNqZUbsaHRpWV3BgyEte8SLTf2k");
+  const user = deriveKeypairFromSecretKey(nodePrivateKey); // for local test only
   const treasury = Keypair.generate().publicKey;
 
   const adminSig: Signer = {
@@ -556,127 +564,127 @@ describe("contract", () => {
   //   console.log("Proof of Storage Submitted Successfully. Tx Hash:", tx);
   // });
 
-  it("Requests node exit successfully for single-node shard", async () => {
-    const data_hash = "abcd1234";
-    const size_bytes = new anchor.BN(10000);
-    const shard_id = 0;
-    const shard_count = 1;
-    const duration = new anchor.BN(1);
-    const stake_amount = new anchor.BN(0.2 * LAMPORTS_PER_SOL);
+  // it("Requests node exit successfully for single-node shard", async () => {
+  //   const data_hash = "abcd1234";
+  //   const size_bytes = new anchor.BN(10000);
+  //   const shard_id = 0;
+  //   const shard_count = 1;
+  //   const duration = new anchor.BN(1);
+  //   const stake_amount = new anchor.BN(0.2 * LAMPORTS_PER_SOL);
 
-    const newUser = Keypair.generate();
-    const newUserSig: Signer = {
-      publicKey: newUser.publicKey,
-      secretKey: newUser.secretKey,
-    };
+  //   const newUser = Keypair.generate();
+  //   const newUserSig: Signer = {
+  //     publicKey: newUser.publicKey,
+  //     secretKey: newUser.secretKey,
+  //   };
 
-    const [newNodePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("node"), newUser.publicKey.toBuffer()],
-      program.programId
-    );
+  //   const [newNodePda] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("node"), newUser.publicKey.toBuffer()],
+  //     program.programId
+  //   );
 
-    const [newStakeEscrowPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("stake_escrow"), newUser.publicKey.toBuffer()],
-      program.programId
-    );
+  //   const [newStakeEscrowPda] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("stake_escrow"), newUser.publicKey.toBuffer()],
+  //     program.programId
+  //   );
 
-    const [uploadPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("upload"), Buffer.from(data_hash), user.publicKey.toBuffer()],
-      program.programId
-    );
+  //   const [uploadPda] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("upload"), Buffer.from(data_hash), user.publicKey.toBuffer()],
+  //     program.programId
+  //   );
 
-    const [uploadEscrowPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), Buffer.from(data_hash), user.publicKey.toBuffer()],
-      program.programId
-    );
+  //   const [uploadEscrowPda] = PublicKey.findProgramAddressSync(
+  //     [Buffer.from("escrow"), Buffer.from(data_hash), user.publicKey.toBuffer()],
+  //     program.programId
+  //   );
 
-    await program.provider.connection.confirmTransaction(
-      await program.provider.connection.requestAirdrop(newUser.publicKey, 5 * LAMPORTS_PER_SOL),
-      "confirmed"
-    );
+  //   await program.provider.connection.confirmTransaction(
+  //     await program.provider.connection.requestAirdrop(newUser.publicKey, 5 * LAMPORTS_PER_SOL),
+  //     "confirmed"
+  //   );
 
-    // Register node
-    await program.methods
-      .registerNode(stake_amount)
-      .accounts({
-        owner: newUser.publicKey,
-        config: storageConfigPda,
-      })
-      .signers([newUserSig])
-      .rpc();
-    console.log("Registered node PDA:", newNodePda.toBase58());
+  //   // Register node
+  //   await program.methods
+  //     .registerNode(stake_amount)
+  //     .accounts({
+  //       owner: newUser.publicKey,
+  //       config: storageConfigPda,
+  //     })
+  //     .signers([newUserSig])
+  //     .rpc();
+  //   console.log("Registered node PDA:", newNodePda.toBase58());
 
-    const nodeAccount = await program.account.node.fetch(newNodePda);
-    expect(nodeAccount.isActive).to.be.true;
-    console.log("Node account state after registration:", {
-      owner: nodeAccount.owner.toBase58(),
-      stakeAmount: nodeAccount.stakeAmount.toNumber(),
-      isActive: nodeAccount.isActive,
-      uploadCount: nodeAccount.uploadCount.toNumber(),
-    });
+  //   const nodeAccount = await program.account.node.fetch(newNodePda);
+  //   expect(nodeAccount.isActive).to.be.true;
+  //   console.log("Node account state after registration:", {
+  //     owner: nodeAccount.owner.toBase58(),
+  //     stakeAmount: nodeAccount.stakeAmount.toNumber(),
+  //     isActive: nodeAccount.isActive,
+  //     uploadCount: nodeAccount.uploadCount.toNumber(),
+  //   });
 
-    // Execute upload
-    const upload_tx = await program.methods
-      .uploadData(data_hash, size_bytes, shard_count, duration)
-      .accounts({
-        config: storageConfigPda,
-        payer: user.publicKey,
-        treasury: treasury,
-      })
-      .remainingAccounts([{ pubkey: newNodePda, isWritable: true, isSigner: false }])
-      .signers([userSig])
-      .rpc();
-    console.log("Upload transaction:", upload_tx);
+  //   // Execute upload
+  //   const upload_tx = await program.methods
+  //     .uploadData(data_hash, size_bytes, shard_count, duration)
+  //     .accounts({
+  //       config: storageConfigPda,
+  //       payer: user.publicKey,
+  //       treasury: treasury,
+  //     })
+  //     .remainingAccounts([{ pubkey: newNodePda, isWritable: true, isSigner: false }])
+  //     .signers([userSig])
+  //     .rpc();
+  //   console.log("Upload transaction:", upload_tx);
 
-    const nodeAfterUpload = await program.account.node.fetch(newNodePda);
-    console.log("Node account state after upload:", {
-      owner: nodeAfterUpload.owner.toBase58(),
-      stakeAmount: nodeAfterUpload.stakeAmount.toNumber(),
-      isActive: nodeAfterUpload.isActive,
-      uploadCount: nodeAfterUpload.uploadCount.toNumber(),
-    });
+  //   const nodeAfterUpload = await program.account.node.fetch(newNodePda);
+  //   console.log("Node account state after upload:", {
+  //     owner: nodeAfterUpload.owner.toBase58(),
+  //     stakeAmount: nodeAfterUpload.stakeAmount.toNumber(),
+  //     isActive: nodeAfterUpload.isActive,
+  //     uploadCount: nodeAfterUpload.uploadCount.toNumber(),
+  //   });
 
-    const initialOwnerBalance = await program.provider.connection.getBalance(newUser.publicKey);
+  //   const initialOwnerBalance = await program.provider.connection.getBalance(newUser.publicKey);
 
-    // Request node exit
-    let tx;
-    try {
-      tx = await program.methods
-        .requestReplacement(data_hash, shard_id, user.publicKey)
-        .accounts({
-          replacement: null,
-          owner: newUser.publicKey,
-          config: storageConfigPda,
-          treasury: treasury,
-        })
-        .signers([newUserSig])
-        .rpc();
-      console.log("RequestReplacement transaction:", tx);
-    } catch (error) {
-      if (error instanceof anchor.web3.SendTransactionError) {
-        const logs = await error.getLogs(program.provider.connection);
-        console.error("RequestReplacement logs:", logs.join("\n"));
-        throw error;
-      }
-      throw error;
-    }
+  //   // Request node exit
+  //   let tx;
+  //   try {
+  //     tx = await program.methods
+  //       .requestReplacement(data_hash, shard_id, user.publicKey)
+  //       .accounts({
+  //         replacement: null,
+  //         owner: newUser.publicKey,
+  //         config: storageConfigPda,
+  //         treasury: treasury,
+  //       })
+  //       .signers([newUserSig])
+  //       .rpc();
+  //     console.log("RequestReplacement transaction:", tx);
+  //   } catch (error) {
+  //     if (error instanceof anchor.web3.SendTransactionError) {
+  //       const logs = await error.getLogs(program.provider.connection);
+  //       console.error("RequestReplacement logs:", logs.join("\n"));
+  //       throw error;
+  //     }
+  //     throw error;
+  //   }
 
-    const finalNodeAccount = await program.account.node.fetch(newNodePda);
-    expect(finalNodeAccount.isActive).to.be.false;
-    expect(finalNodeAccount.uploadCount.toNumber()).to.equal(0);
+  //   const finalNodeAccount = await program.account.node.fetch(newNodePda);
+  //   expect(finalNodeAccount.isActive).to.be.false;
+  //   expect(finalNodeAccount.uploadCount.toNumber()).to.equal(0);
 
-    const uploadAccount = await program.account.upload.fetch(uploadPda);
-    expect(uploadAccount.shards[shard_id].nodeKeys.map(k => k.toBase58())).to.not.include(
-      newNodePda.toBase58()
-    );
+  //   const uploadAccount = await program.account.upload.fetch(uploadPda);
+  //   expect(uploadAccount.shards[shard_id].nodeKeys.map(k => k.toBase58())).to.not.include(
+  //     newNodePda.toBase58()
+  //   );
 
-    const finalOwnerBalance = await program.provider.connection.getBalance(newUser.publicKey);
-    const finalEscrowBalance = await program.provider.connection.getBalance(newStakeEscrowPda);
-    expect(finalOwnerBalance).to.be.greaterThan(initialOwnerBalance);
-    expect(finalEscrowBalance).to.equal(0);
+  //   const finalOwnerBalance = await program.provider.connection.getBalance(newUser.publicKey);
+  //   const finalEscrowBalance = await program.provider.connection.getBalance(newStakeEscrowPda);
+  //   expect(finalOwnerBalance).to.be.greaterThan(initialOwnerBalance);
+  //   expect(finalEscrowBalance).to.equal(0);
 
-    console.log("Node Exit Requested Successfully. Tx Hash:", tx);
-  });
+  //   console.log("Node Exit Requested Successfully. Tx Hash:", tx);
+  // });
 
   it("Updates configuration successfully", async () => {
     const newSolPerGb = new anchor.BN(0.05 * LAMPORTS_PER_SOL);

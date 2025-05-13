@@ -150,62 +150,6 @@ impl UploadEventListener {
     ///     listener.start().await.unwrap();
     /// }
     /// ```
-    // pub async fn start(&self) -> Result<(), ApiError> {
-    //     info!(
-    //         "Starting UploadEventListener for program: {}",
-    //         self.config.program_id
-    //     );
-    //     // Configure logs subscription
-    //     let filter = RpcTransactionLogsFilter::Mentions(vec![self.config.program_id.to_string()]);
-    //     let logs_config = RpcTransactionLogsConfig {
-    //         commitment: Some(self.config.commitment.clone()),
-    //     };
-    //     trace!(
-    //         "Configuring WebSocket subscription with filter for program: {}",
-    //         self.config.program_id
-    //     );
-
-    //     // Establish WebSocket subscription
-    //     let (_sub, stream) = solana_client::pubsub_client::PubsubClient::logs_subscribe(
-    //         &self.config.ws_url,
-    //         filter,
-    //         logs_config,
-    //     )
-    //     .map_err(|e| {
-    //         error!("Failed to establish WebSocket subscription: {}", e);
-    //         ApiError::SubscriptionFailed
-    //     })?;
-    //     info!(
-    //         "WebSocket subscription established for program: {}",
-    //         self.config.program_id
-    //     );
-
-    //     // Process incoming log messages
-    //     loop {
-    //         match stream.try_recv() {
-    //             Ok(response) => {
-    //                 trace!("Received log response");
-    //                 // Handle received log response
-    //                 if let Err(e) = self.process_log_response(response).await {
-    //                     warn!("Error processing log response: {}", e);
-    //                     continue;
-    //                 }
-    //             }
-    //             Err(crossbeam_channel::TryRecvError::Empty) => {
-    //                 // No messages, continue polling
-    //                 trace!("No new log messages available");
-    //                 continue;
-    //             }
-    //             Err(crossbeam_channel::TryRecvError::Disconnected) => {
-    //                 error!("WebSocket subscription disconnected");
-    //                 return Err(ApiError::SubscriptionFailed);
-    //             }
-    //         }
-    //         // Yield control to prevent tight loop
-    //         tokio::time::sleep(Duration::from_millis(200)).await;
-    //     }
-    // }
-
     pub async fn start(&self) -> Result<(), ApiError> {
         info!(
             "Starting UploadEventListener for program: {}",
