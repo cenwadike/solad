@@ -9,6 +9,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_SOLANA_PROGRAM_ID);
 const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL;
+const NODE_API_URL = import.meta.env.VITE_NODE_API_URL;
 const connection = new Connection(RPC_URL, 'confirmed');
 
 function formatBytes(bytes) {
