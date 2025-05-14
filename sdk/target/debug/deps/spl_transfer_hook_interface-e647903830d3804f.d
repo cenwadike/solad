@@ -1,0 +1,9 @@
+/Users/mac/Documents/projects/solad/node/sdk/target/debug/deps/libspl_transfer_hook_interface-e647903830d3804f.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/error.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/instruction.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/offchain.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/onchain.rs
+
+/Users/mac/Documents/projects/solad/node/sdk/target/debug/deps/spl_transfer_hook_interface-e647903830d3804f.d: /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/error.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/instruction.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/offchain.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/onchain.rs
+
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/error.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/instruction.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/offchain.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/spl-transfer-hook-interface-0.4.1/src/onchain.rs:

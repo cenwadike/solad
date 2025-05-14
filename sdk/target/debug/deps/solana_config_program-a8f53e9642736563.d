@@ -1,0 +1,8 @@
+/Users/mac/Documents/projects/solad/node/sdk/target/debug/deps/libsolana_config_program-a8f53e9642736563.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/config_instruction.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/config_processor.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/date_instruction.rs
+
+/Users/mac/Documents/projects/solad/node/sdk/target/debug/deps/solana_config_program-a8f53e9642736563.d: /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/config_instruction.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/config_processor.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/date_instruction.rs
+
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/config_instruction.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/config_processor.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/solana-config-program-1.18.26/src/date_instruction.rs:

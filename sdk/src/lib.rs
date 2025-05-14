@@ -1,9 +1,11 @@
-use crate::error::*;
-use crate::model::*;
+pub use crate::error::*;
+pub use crate::model::*;
+pub use crate::event::*;
 use serde_json::Value;
 
-mod error;
-mod model;
+pub mod error;
+pub mod model;
+pub mod event;
 
 
 pub struct DataClient {
