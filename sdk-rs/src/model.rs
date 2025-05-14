@@ -7,5 +7,5 @@ pub struct SetData {
     pub data: Vec<u8>,
     pub shard: u32,
     pub upload_pda: String,
-    pub format: String
+    pub format: String,
 }

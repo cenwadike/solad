@@ -1,8 +1,9 @@
-use crate::error::ApiError;
+
 /// This module implements event listening and processing for upload events in a decentralized
 /// storage network. It integrates with the Solana blockchain to subscribe to transaction logs,
 /// parse upload events, and verify payments. The module includes the `UploadEventListener` for
 /// capturing events and the `UploadEventConsumer` for validating and managing them.
+use crate::error::ApiError;
 use base64::Engine;
 use dashmap::DashMap;
 use log::{debug, error, info, trace, warn};
