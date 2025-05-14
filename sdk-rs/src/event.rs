@@ -36,7 +36,6 @@ pub struct UploadEventListener {
     event_map: EventMap,         // Shared map for storing events
 }
 
-
 pub struct UploadEventConsumer {
     config: EventListenerConfig, // Configuration for the consumer
     event_map: EventMap,         // Shared map of upload events
