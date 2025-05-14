@@ -8,6 +8,18 @@ use solana_client::{
 };
 
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UploadEvent {
+    pub upload_pda: Pubkey,
+    pub data_hash: String,
+    pub size_bytes: u64,
+    pub shard_count: u8,
+    pub payer: Pubkey,
+    pub nodes: Vec<Pubkey>,
+    pub storage_duration_days: u64,
+    pub timestamp: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct EventListenerConfig {
     pub ws_url: String,
