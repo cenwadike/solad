@@ -1,9 +1,0 @@
-/Users/mac/Documents/projects/solad/node/sdk/target/debug/deps/libfutures_channel-bcc36b163360b762.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/lock.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/mpsc/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/mpsc/queue.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/oneshot.rs
-
-/Users/mac/Documents/projects/solad/node/sdk/target/debug/deps/futures_channel-bcc36b163360b762.d: /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/lock.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/mpsc/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/mpsc/queue.rs /Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/oneshot.rs
-
-/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/lib.rs:
-/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/lock.rs:
-/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/mpsc/mod.rs:
-/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/mpsc/queue.rs:
-/Users/mac/.cargo/registry/src/index.crates.io-6f17d22bba15001f/futures-channel-0.3.31/src/oneshot.rs:

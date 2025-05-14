@@ -1,0 +1,31 @@
+app = "solad-node"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SOLANA_CLUSTER = "devnet"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "600s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+[mounts]
+  source = "solad_data"
+  destination = "/usr/src/app/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 2048
