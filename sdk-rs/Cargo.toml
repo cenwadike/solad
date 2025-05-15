@@ -18,3 +18,8 @@ crossbeam-channel = "0.5.15"
 log = "0.4.27"
 base64 = "0.22.1"
 bincode = "1.3.3"
+anchor-client = { version = "0.30.1", features = ["async"] }
+anchor-lang = { version = "0.26", features = ["derive"] }
+sha2 = "0.10"
+anyhow = "1.0.98"
+contract = { git = "https://github.com/cenwadike/solad" }

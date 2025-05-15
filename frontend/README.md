@@ -7,8 +7,7 @@ This is a decentralized application (dApp) for uploading files and registering m
 ## 🚀 Features
 
 - Upload files to our storage services
-- Store metadata (hash, size, shards, duration) on Solana via smart contract
-- Custom Solana smart contract for `upload_data` instruction
+- Stream Solana transaction logs 
 
 ---
 
@@ -35,10 +34,11 @@ Replace <YOUR_PROGRAM_ID> with deployed Solana program ID.
 
 npm run dev
 
- Upload Flow
+## Upload Flow
+
 User uploads a file
 
-File is hashed and optionally uploaded to storage
+File is hashed and uploaded to storage
 
 A transaction is created with metadata:
 

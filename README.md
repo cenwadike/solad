@@ -53,7 +53,8 @@ SoLad is a peer-to-peer storage network for Solana, tackling transient log pruni
 ### Setup frontend .env
 ```sh
   VITE_SOLANA_PROGRAM_ID=4Fbo2dQdqrVhxLBbZrxVEbDBxp8GmNa9voEN96d4fQJp
-VITE_SOLANA_RPC_URL=http://127.0.0.1:8899
+  VITE_SOLANA_RPC_URL=http://127.0.0.1:8899
+  VITE_NODE_API_URL=http://127.0.0.1:8080
 ```
 
 `NODE_SOLANA_PRIVKEY` and `NODE_PRIVATE_KEY` must match for a smooth local test
@@ -89,3 +90,9 @@ VITE_SOLANA_RPC_URL=http://127.0.0.1:8899
 ## PS: 
 - NODE must stake more than 0.1 Sol (adjustable)
 - Wallet connected to the frontend must have enough Sol to cover gas and storage payment
+
+## SDKs
+
+- SoLad provides Rust and TypeScript SDKs for interacting with the node and the smart contract
+
+- Check out the SDK examples to learn how to upload, stream and retrieve data

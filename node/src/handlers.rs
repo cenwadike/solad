@@ -309,7 +309,7 @@ pub async fn set_value(
     // Derive the storage config public key
     trace!("Deriving storage config public key");
     let (storage_config_pubkey, _storage_config_bump) =
-        Pubkey::find_program_address(&[b"storage_config", payer.pubkey().as_ref()], &contract::ID);
+        Pubkey::find_program_address(&[b"storage_config"], &contract::ID);
     debug!(
         "Derived storage config public key: {}",
         storage_config_pubkey

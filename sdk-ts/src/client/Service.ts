@@ -166,7 +166,7 @@ export class Service {
    */
   async retrieveData(endpoint: string, key: string): Promise<Buffer> {
     try {
-      const response = await axios.get(`${endpoint}/get_value`, {
+      const response = await axios.get(`${endpoint}/get`, {
         params: { key },
         responseType: "arraybuffer",
       });
