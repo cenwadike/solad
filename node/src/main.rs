@@ -9,7 +9,7 @@
 /// Logs are written to `./logs/node.log.txt` in JSON format with rotation for audit purposes,
 /// and colored console output is preserved for real-time debugging.
 use ::libp2p::{identity, PeerId};
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpServer, post};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use chrono::Local;
@@ -31,11 +31,15 @@ use std::io::Write;
 use std::path::Path;
 use strip_ansi_escapes;
 
+use jsonrpc_core::{IoHandler, Params, Value, Error as RpcError};
+use serde_json::json;
+
 use crate::data_store::DataStore;
 use crate::data_upload_event::{EventListenerConfig, UploadEvent, UploadEventListener};
 use crate::db::Database;
 use crate::handlers::{get_value, health, set_value};
 use crate::network_manager::{NetworkManager, PeerInfo};
+use  crate::json_rpc::rpc;
 
 mod data_store;
 mod data_upload_event;
@@ -45,6 +49,7 @@ mod handlers;
 mod models;
 mod network_manager;
 mod solad_client;
+mod json_rpc;
 
 /// Sets up the logging system to write JSON logs to `./logs/node.log.txt` with rotation
 /// and colored console output.
@@ -286,6 +291,63 @@ async fn main() -> std::io::Result<()> {
     let network_manager = setup_network_manager(&config, db.clone(), data_store.clone()).await;
     info!("Initialized NetworkManager");
 
+    // json rpc server started here
+    let mut io = IoHandler::new();
+
+    // get_value JSON-RPC method
+    {
+        let db = db.clone();
+        io.add_method("get_value", move |params: Params| {
+            let db = db.clone();
+            async move {
+                let query: KeyQuery = params.parse()?;
+                let value = db
+                    .get(query.key.as_bytes())
+                    .map_err(|e| RpcError::internal_error().message(e.to_string()))?
+                    .ok_or_else(|| RpcError::invalid_params("Key not found"))?;
+
+                Ok(Value::String(String::from_utf8_lossy(&value).to_string()))
+            }
+        });
+    }
+
+    // set_value JSON-RPC method
+    {
+        let data_store = data_store.clone();
+        let event_map = event_map.clone();
+        let config = config.clone();
+        let network_manager = network_manager.clone();
+
+        io.add_method("set_value", move |params: Params| {
+            let data_store = data_store.clone();
+            let event_map = event_map.clone();
+            let config = config.clone();
+            let network_manager = network_manager.clone();
+
+            async move {
+                let payload: KeyValuePayload = params.parse()?;
+
+                // Reuse your existing async set_value logic
+                let response = set_value(
+                    web::Data::new(data_store.clone()),
+                    web::Data::new(event_map.clone()),
+                    web::Json(payload),
+                    web::Data::new(config.clone()),
+                    web::Data::new(network_manager.clone()),
+                ).await;
+
+                match response {
+                    Ok(_) => Ok(Value::String("Data set successfully".into())),
+                    Err(e) => Err(RpcError::internal_error().message(format!("{:?}", e)))
+                }
+            }
+        });
+    }
+
+    let shared_handler = web::Data::new(Arc::new(TokioMutex::new(io)));
+
+    // end of json-rpc server
+
     // Start HTTP server
     info!("Starting HTTP server on 127.0.0.1:8080");
     HttpServer::new(move || {
@@ -301,6 +363,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/get", web::get().to(get_value))
                     .route("/set", web::post().to(set_value)),
             )
+            .service(rpc) // <-- add JSON-RPC endpoint here
     })
     .bind("127.0.0.1:8080")?
     .run()

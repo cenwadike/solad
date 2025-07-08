@@ -39,3 +39,4 @@ anchor-client = { version = "0.30.1", features = ["async"] }
 borsh = "1.5.5"
 colored = "3.0.0"
 strip-ansi-escapes = "0.2.1"
+jsonrpc-core = "18"
